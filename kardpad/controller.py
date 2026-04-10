@@ -9,8 +9,8 @@ from .config import PLAYER_COUNT
 
 
 BUTTON_ALIASES = {
-    "ACCELERATE": "A",
-    "BRAKE": "B",
+    "ACCELERATE": "Y",
+    "BRAKE": "A",
     "DRIFT": "R1",
     "ITEM": "X",
     "START": "OPTIONS",
@@ -56,8 +56,8 @@ BUTTON_MASKS_1 = {
 
 BUTTON_MASKS_2 = {
     "Y": 0x80,
-    "B": 0x20,
-    "A": 0x40,
+    "B": 0x40,
+    "A": 0x20,
     "X": 0x10,
     "R1": 0x08,
     "L1": 0x04,
