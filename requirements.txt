@@ -1,0 +1,4 @@
+websockets>=12.0
+pynput>=1.7.6
+# Opcional — para mostrar QR en la terminal:
+# qrcode[pil]>=7.4

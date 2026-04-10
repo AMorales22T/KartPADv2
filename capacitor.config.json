@@ -1,0 +1,15 @@
+{
+  "appId": "com.kardpad.app",
+  "appName": "KardPad",
+  "webDir": "static",
+  "server": {
+    "allowNavigation": ["*"],
+    "iosScheme": "http"
+  },
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#06060e",
+    "preferredContentMode": "mobile",
+    "limitsNavigationsToAppBoundDomains": false
+  }
+}
