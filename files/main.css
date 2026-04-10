@@ -1,0 +1,800 @@
+/* ══════════════════════════════════════════════════════════════════
+   KardPad — main.css  v2.0
+   Cambios principales:
+   • safe-area con env() + fallback en todos los bordes
+   • touch-action: manipulation / none en los elementos correctos
+   • Botones mínimo 72px; A/B grandes con clamp(80px, 25vmin, 130px)
+   • Zonas visualmente separadas (izquierda / centro / derecha)
+   • Estados .pressed con cambio de color + escala inmediatos
+   • Animaciones CSS 150ms — no bloqueantes
+   • Sin user-select ni tap-highlight en toda la página
+   ══════════════════════════════════════════════════════════════════ */
+
+:root {
+  --player-color: #e74c3c;
+  --player-glow:  #e74c3c66;
+  --p1: #e74c3c;  --p1-shadow: rgba(231,76,60,.30);
+  --p2: #3498db;  --p2-shadow: rgba(52,152,219,.30);
+  --p3: #f1c40f;  --p3-shadow: rgba(241,196,15,.30);
+  --p4: #2ecc71;  --p4-shadow: rgba(46,204,113,.30);
+
+  --bg:            #06060e;
+  --bg-card:       rgba(255,255,255,.05);
+  --bg-card-strong:rgba(255,255,255,.09);
+  --border-dim:    rgba(255,255,255,.09);
+  --border-bright: rgba(255,255,255,.20);
+  --text-dim:  #7c8ba1;
+  --text-mid:  #b4c0d0;
+  --cyan:   #06b6d4;
+  --violet: #7c3aed;
+  --panel-shadow: 0 20px 60px rgba(0,0,0,.50);
+
+  /* safe-area: env() con fallback mínimo de 8px ────────────────── */
+  --safe-top:    max(env(safe-area-inset-top,    0px), 8px);
+  --safe-right:  max(env(safe-area-inset-right,  0px), 8px);
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+  --safe-left:   max(env(safe-area-inset-left,   0px), 8px);
+
+  /* Tamaños de botón responsivos ────────────────────────────────── */
+  --btn-main: clamp(80px, 25vmin, 130px);  /* A acelerador */
+  --btn-brake: clamp(66px, 19vmin, 100px); /* B freno (un poco más pequeño) */
+  --btn-shake: clamp(70px, 21vmin, 108px); /* TRUCO */
+}
+
+/* ─── Reset base ────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0; padding: 0;
+  /* Desactivar el resaltado azul de tap en WebKit/Chrome mobile */
+  -webkit-tap-highlight-color: transparent;
+  /* Evitar selección accidental de texto al pulsar rápido */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  /* Bloquear zoom en iOS al hacer double-tap */
+  touch-action: manipulation;
+}
+
+body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: #eef2ff;
+  font-family: 'Share Tech Mono', monospace;
+  /* iOS: evita el "bounce" de scroll elástico */
+  overscroll-behavior: none;
+}
+
+button, input, a { font: inherit; }
+
+/* Los elementos interactivos usan manipulation para evitar zoom 300ms delay */
+button, a, label { touch-action: manipulation; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   SETUP SCREEN
+   ═══════════════════════════════════════════════════════════════════ */
+#setup {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  /* padding respeta el notch/home-indicator */
+  padding:
+    calc(var(--safe-top)    + 16px)
+    calc(var(--safe-right)  + 16px)
+    calc(var(--safe-bottom) + 16px)
+    calc(var(--safe-left)   + 16px);
+  background:
+    radial-gradient(circle at top,         rgba(231,76,60,.18), transparent 42%),
+    radial-gradient(circle at left bottom, rgba(241,196,15,.12), transparent 36%),
+    linear-gradient(180deg, #090914 0%, #05050c 100%);
+}
+
+#bgCanvas, .scan-lines {
+  position: absolute; inset: 0; pointer-events: none;
+}
+.scan-lines {
+  background: repeating-linear-gradient(
+    0deg, transparent, transparent 3px,
+    rgba(0,0,0,.07) 3px, rgba(0,0,0,.07) 4px
+  );
+  z-index: 1;
+}
+
+.setup-content {
+  position: relative; z-index: 2;
+  width: min(100%, 520px);
+  display: grid; gap: 18px;
+  padding: 24px;
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 26px;
+  background: rgba(8,10,20,.84);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--panel-shadow);
+}
+
+.logo-wrap   { display: grid; gap: 8px; text-align: center; }
+.logo-eyebrow{ color: var(--cyan); opacity: .74; font-size: 11px; letter-spacing: .1em; }
+.logo {
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(40px, 11vw, 76px);
+  line-height: .95; color: #fff;
+  text-shadow: 0 0 40px rgba(231,76,60,.35);
+}
+.logo span { color: var(--player-color); text-shadow: 0 0 30px var(--player-glow); }
+.logo-sub  { font-size: 11px; color: var(--text-dim); letter-spacing: .08em; }
+
+.connection-pill {
+  justify-self: center;
+  padding: 10px 14px;
+  border: 1px solid rgba(6,182,212,.22);
+  border-radius: 999px;
+  background: rgba(6,182,212,.08);
+  color: #d8f8ff;
+  font-size: 12px; text-align: center; letter-spacing: .08em;
+}
+
+.section-label { font-size: 11px; color: var(--cyan); opacity: .72; letter-spacing: .08em; }
+
+/* ─── Player cards ───────────────────────────────────────────────── */
+.player-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 12px;
+}
+
+.player-card {
+  position: relative;
+  display: grid; place-items: center; gap: 8px;
+  min-height: 110px; padding: 16px 12px;
+  border: 1px solid var(--border-dim);
+  border-radius: 18px;
+  background: var(--bg-card);
+  color: #fff; overflow: hidden;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform .14s ease, border-color .16s ease, box-shadow .16s ease;
+}
+.player-card[data-player="1"] { --pc: var(--p1); --pc-shadow: var(--p1-shadow); }
+.player-card[data-player="2"] { --pc: var(--p2); --pc-shadow: var(--p2-shadow); }
+.player-card[data-player="3"] { --pc: var(--p3); --pc-shadow: var(--p3-shadow); }
+.player-card[data-player="4"] { --pc: var(--p4); --pc-shadow: var(--p4-shadow); }
+.player-card.selected {
+  border-color: var(--pc);
+  background: rgba(255,255,255,.09);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06), 0 14px 30px var(--pc-shadow);
+}
+.player-card:active { transform: scale(.94); }
+
+.card-glow {
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at center bottom, var(--pc), transparent 68%);
+  opacity: 0; transition: opacity .2s ease;
+}
+.player-card.selected .card-glow { opacity: .18; }
+
+.card-num {
+  position: relative; z-index: 1;
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(26px, 6vw, 34px);
+  color: #fff;
+}
+.player-card.selected .card-num { color: var(--pc); }
+
+.card-text {
+  position: relative; z-index: 1;
+  font-size: 11px; color: var(--text-mid);
+  text-transform: uppercase; letter-spacing: .08em;
+}
+.card-bar {
+  position: relative; z-index: 1;
+  width: 44%; height: 4px; border-radius: 999px;
+  background: rgba(255,255,255,.18);
+  transition: background .2s ease;
+}
+.player-card.selected .card-bar { background: var(--pc); }
+
+.setup-copy { color: var(--text-mid); font-size: 13px; line-height: 1.5; text-align: center; }
+
+.setup-actions {
+  display: flex; align-items: center; justify-content: center;
+  gap: 18px; flex-wrap: wrap;
+}
+
+.qr-scan-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 20px;
+  border: 1px solid rgba(6,182,212,.4);
+  border-radius: 999px;
+  background: rgba(6,182,212,.1);
+  color: var(--cyan);
+  font-size: 13px; letter-spacing: .06em;
+  cursor: pointer;
+  transition: background .14s, transform .12s;
+}
+.qr-scan-btn:active { background: rgba(6,182,212,.22); transform: scale(.96); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   CONTROLLER — contenedor principal
+   ═══════════════════════════════════════════════════════════════════ */
+#controller {
+  position: fixed; inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 82%, rgba(231,76,60,.05), transparent 28%),
+    radial-gradient(circle at 82% 18%, rgba(241,196,15,.04), transparent 26%),
+    linear-gradient(180deg, #0b0d18 0%, #06070c 100%);
+}
+
+/* ─── Status bar ─────────────────────────────────────────────────── */
+#statusBar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  /* Padding respeta el notch en iOS (esquina superior) */
+  padding:
+    calc(var(--safe-top) + 6px)
+    calc(var(--safe-right) + 12px)
+    10px
+    calc(var(--safe-left)  + 12px);
+  color: #dbe7f6; font-size: 12px; letter-spacing: .06em;
+  background: linear-gradient(to bottom, rgba(6,6,14,.76) 0%, transparent 100%);
+}
+#statusText {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 1; min-width: 0;
+}
+.status-actions { display: flex; flex-wrap: nowrap; gap: 6px; flex-shrink: 0; }
+
+/* En portrait ocultamos el status-bar para no saturar */
+@media (orientation: portrait) { .status-actions { display: none; } }
+
+/* ─── Mini botones de estado ─────────────────────────────────────── */
+.mini-btn {
+  height: 34px; padding: 0 12px;
+  border: 1px solid rgba(255,255,255,.13); border-radius: 999px;
+  background: rgba(255,255,255,.09); color: #fff;
+  display: inline-flex; align-items: center; gap: 5px;
+  white-space: nowrap;
+  transition: background .1s, transform .1s;
+}
+.mini-btn-active  { border-color: rgba(6,182,212,.45); background: rgba(6,182,212,.18); color: #dffcff; }
+.mini-btn-disabled{ opacity: .45; pointer-events: none; }
+.mini-btn:disabled{ pointer-events: none; }
+.mini-btn:active  { background: rgba(255,255,255,.18); transform: scale(.94); }
+
+/* ─── Engranaje de configuración ─────────────────────────────────── */
+.settings-gear-btn {
+  position: absolute;
+  right:  calc(var(--safe-right)  + 12px);
+  bottom: calc(var(--safe-bottom) + 12px);
+  z-index: 40;
+  width: 48px; height: 48px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.15);
+  background: rgba(10,12,24,.90); backdrop-filter: blur(10px);
+  color: rgba(255,255,255,.72);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 16px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.08);
+  transition: transform .15s, background .15s, color .15s;
+}
+.settings-gear-btn:active { transform: rotate(30deg) scale(.90); color: var(--player-color); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   LAYOUT DEL CONTROLADOR
+   — Coordenadas absolutas con safe-area explícita
+   — Se optimiza para landscape (modo de juego)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Altura del status bar estimada (incluyendo safe-area top) */
+:root { --statusbar-h: calc(var(--safe-top) + 48px); }
+
+/* ── Fila superior: DRIFT | + | ITEM ─────────────────────────────── */
+#shoulder-row {
+  position: absolute;
+  top:   calc(var(--safe-top) + 50px);
+  left:  calc(var(--safe-left)  + 10px);
+  right: calc(var(--safe-right) + 10px);
+  display: grid;
+  grid-template-columns: 1fr 64px 1fr;
+  gap: 10px;
+  z-index: 10;
+}
+
+/* ── Cluster izquierdo: volante ──────────────────────────────────── */
+#pedal-cluster {
+  position: absolute;
+  left: calc(var(--safe-left) + 10px);
+  /* Centrado vertical en el espacio entre status-bar y bottom */
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  z-index: 10;
+}
+
+/* ── Cluster derecho: A + B + TRUCO ─────────────────────────────── */
+#action-cluster {
+  position: absolute;
+  right: calc(var(--safe-right) + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-end;
+  z-index: 10;
+}
+
+/* ── Puntero de menú (centro inferior, oculto por defecto) ──────── */
+#pointer-cluster {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 56px);
+  transform: translateX(-50%);
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  z-index: 10;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TRIGGERS (DRIFT / ITEM) — fila superior
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Reset de estilos base */
+.trigger, .pedal-btn, .action-btn, .start-btn {
+  border: none; outline: none;
+  /* touch-action: none para capturar todos los eventos pointer */
+  touch-action: none;
+  -webkit-touch-callout: none;
+  cursor: pointer;
+  position: relative;
+}
+
+/* Zona de toque ampliada (-10px extra en todos los lados) */
+.trigger::before, .pedal-btn::before, .action-btn::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: inherit;
+  pointer-events: auto;
+}
+
+.trigger {
+  width: 100%;
+  min-height: 64px;
+  border-radius: 16px 16px 22px 22px;
+  background: linear-gradient(180deg, #282b3d, #161826);
+  color: #f8fafc;
+  border: 1px solid rgba(255,255,255,.13);
+  box-shadow: 0 8px 20px rgba(0,0,0,.35);
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(14px, 2.4vmin, 18px);
+  letter-spacing: .06em;
+  transition: transform .08s ease, filter .08s ease, box-shadow .08s ease, background .08s ease;
+  will-change: transform;
+}
+.trigger[data-side="left"]  { border-top-left-radius: 8px; }
+.trigger[data-side="right"] { border-top-right-radius: 8px; }
+.trigger.pressed,
+.trigger:active {
+  transform: translateY(4px) scale(.972);
+  /* Flash de color al presionar: resalta con el color del jugador */
+  background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.07));
+  filter: brightness(1.30) saturate(1.1);
+  box-shadow: 0 2px 6px rgba(0,0,0,.55), inset 0 3px 8px rgba(0,0,0,.4);
+}
+
+/* ─── Botón START (centro superior) ─────────────────────────────── */
+.kart-start {
+  width: 64px; height: 64px; border-radius: 50%;
+  background: linear-gradient(180deg, #1a1d2c, #0d101a);
+  border: 2px solid rgba(255,255,255,.15);
+  color: #fff;
+  font-family: 'Orbitron', sans-serif; font-size: 26px; letter-spacing: .02em;
+  box-shadow: 0 14px 30px rgba(0,0,0,.46), inset 0 0 0 1px rgba(255,255,255,.04);
+  display: flex; align-items: center; justify-content: center;
+  align-self: center;
+  transition: transform .08s, filter .08s, background .1s, box-shadow .08s;
+  will-change: transform;
+}
+.kart-start.pressed,
+.kart-start:active {
+  background: linear-gradient(180deg, #fff, var(--player-color));
+  color: #071018;
+  transform: scale(.95);
+  box-shadow: 0 4px 12px rgba(0,0,0,.5), inset 0 3px 8px rgba(0,0,0,.3);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BOTONES A / B
+   ═══════════════════════════════════════════════════════════════════ */
+.pedal-btns {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  align-items: center;
+}
+
+.pedal-btn {
+  border-radius: 50%;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 900;
+  box-shadow: 0 10px 26px rgba(0,0,0,.42), inset 0 2px 6px rgba(255,255,255,.22);
+  transition: transform .08s ease, filter .08s ease, box-shadow .08s ease;
+  will-change: transform;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+/* A — acelerador: el más grande */
+.pedal-accel {
+  width:  var(--btn-main);
+  height: var(--btn-main);
+  font-size: clamp(22px, 7vmin, 44px);
+  background: radial-gradient(circle at 35% 28%, #00e0ad, #00805a 80%);
+  color: #032e1f;
+  text-shadow: 0 2px 4px rgba(0,0,0,.28);
+}
+
+/* B — freno: ligeramente más pequeño */
+.pedal-brake {
+  width:  var(--btn-brake);
+  height: var(--btn-brake);
+  font-size: clamp(17px, 5vmin, 32px);
+  background: radial-gradient(circle at 35% 28%, #ff6b58, #bb2e22 80%);
+  color: #5f0e0c;
+  text-shadow: 0 2px 4px rgba(0,0,0,.28);
+}
+
+/* Estado presionado — feedback visual INMEDIATO */
+.pedal-btn.pressed,
+.pedal-btn:active {
+  transform: translateY(5px) scale(.948);
+  filter: brightness(1.28) saturate(1.18);
+  box-shadow: 0 2px 6px rgba(0,0,0,.65), inset 0 5px 12px rgba(0,0,0,.45);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   VOLANTE — barra de inclinación (cluster izquierdo)
+   ═══════════════════════════════════════════════════════════════════ */
+.tilt-bar-wrap {
+  display: flex; flex-direction: column; gap: 7px;
+  /* Anchura adaptable al espacio libre (entre clusters) */
+  width: clamp(130px, 36vw, 230px);
+  max-width: 100%;
+}
+.tilt-label {
+  font-size: 11px; color: var(--text-mid); line-height: 1.4;
+}
+.tilt-bar {
+  position: relative; height: 10px;
+  background: rgba(255,255,255,.12);
+  border-radius: 999px; overflow: visible;
+  border: 1px solid rgba(255,255,255,.06);
+}
+.tilt-track { position: relative; width: 100%; height: 100%; }
+.tilt-indicator {
+  position: absolute; top: 50%;
+  transform: translateY(-50%);
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--player-color);
+  box-shadow: 0 0 10px var(--player-glow);
+  transition: left .06s linear, background .1s;
+  margin-left: -10px;
+  left: 50%;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BOTÓN TRUCO / SHAKE
+   ═══════════════════════════════════════════════════════════════════ */
+.action-btns {
+  display: flex; flex-direction: column;
+  align-items: flex-end; gap: 10px;
+}
+
+.action-btn {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px;
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,.13);
+  box-shadow: 0 10px 24px rgba(0,0,0,.36), inset 0 2px 6px rgba(255,255,255,.14);
+  transition: transform .08s ease, filter .08s ease, box-shadow .08s ease;
+  will-change: transform;
+  font-size: 12px; letter-spacing: .06em; color: #fff;
+}
+.action-btn.pressed,
+.action-btn:active {
+  transform: translateY(5px) scale(.948);
+  filter: brightness(1.25);
+  box-shadow: 0 2px 6px rgba(0,0,0,.65), inset 0 5px 12px rgba(0,0,0,.45);
+}
+
+.action-shake {
+  width:  var(--btn-shake);
+  height: var(--btn-shake);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 28%, #f5a623, #c57900 80%);
+  color: #4e2d00;
+  box-shadow: 0 10px 26px rgba(200,120,0,.32), inset 0 2px 6px rgba(255,255,255,.22);
+}
+
+.shake-icon  { font-size: clamp(20px, 5.5vmin, 34px); line-height: 1; }
+.shake-label { font-size: 10px; letter-spacing: .06em; font-family: 'Orbitron', sans-serif; }
+
+@keyframes shake-flash {
+  0%,100% { box-shadow: 0 10px 26px rgba(200,120,0,.32); }
+  50%      { box-shadow: 0 0 0 10px rgba(245,166,35,.45), 0 10px 26px rgba(200,120,0,.55); }
+}
+.action-shake.shake-flash { animation: shake-flash .18s ease; }
+
+/* ─── Etiquetas de zona ──────────────────────────────────────────── */
+.zone-label       { color: rgba(255,255,255,.45); font-size: 10px; letter-spacing: .1em; }
+.zone-label-right { text-align: right; }
+
+/* ─── Pad de puntero táctil ─────────────────────────────────────── */
+.pointer-pad {
+  width: min(70vw, 340px); height: min(38vw, 190px);
+  border-radius: 18px;
+  border: 1px solid rgba(6,182,212,.3);
+  background: rgba(6,182,212,.05);
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(6,182,212,.4); font-size: 32px;
+  touch-action: none;  /* captura todos los eventos pointer */
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BANNER DE EDICIÓN
+   ═══════════════════════════════════════════════════════════════════ */
+.edit-banner {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: space-between;
+  padding:
+    calc(var(--safe-top)   + 8px)
+    calc(var(--safe-right) + 16px)
+    12px
+    calc(var(--safe-left)  + 16px);
+  background: rgba(6,6,14,.94);
+  border-bottom: 1px solid var(--player-color);
+  backdrop-filter: blur(10px);
+}
+.edit-banner[hidden] { display: none !important; }
+.edit-banner-text {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--player-color); letter-spacing: .06em;
+}
+.edit-banner-actions { display: flex; gap: 10px; }
+.edit-action-btn {
+  padding: 8px 16px; border-radius: 999px; font-size: 12px; letter-spacing: .06em;
+  border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.08); color: #fff;
+  transition: background .1s, transform .1s;
+}
+.edit-action-btn:active { background: rgba(255,255,255,.18); transform: scale(.94); }
+.edit-action-btn--done  { border-color: var(--player-color); color: var(--player-color); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   PANEL DE AJUSTES
+   ═══════════════════════════════════════════════════════════════════ */
+.settings-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: flex-end;
+  pointer-events: none; opacity: 0;
+  transition: opacity .22s;
+}
+.settings-overlay.open { opacity: 1; pointer-events: auto; }
+
+.settings-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,.64);
+  backdrop-filter: blur(4px);
+}
+
+.settings-panel {
+  position: relative; z-index: 1;
+  width: 100%;
+  max-height: 88dvh; /* dvh = dynamic viewport height, más correcto que vh en iOS */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 26px 26px 0 0;
+  background: rgba(8,10,22,.97);
+  border: 1px solid rgba(255,255,255,.1); border-bottom: none;
+  /* Padding inferior respeta el home-indicator en iPhone con muesca */
+  padding: 20px 20px calc(var(--safe-bottom) + 24px);
+  display: grid; gap: 4px;
+  box-shadow: 0 -20px 60px rgba(0,0,0,.55);
+  transform: translateY(100%);
+  transition: transform .28s cubic-bezier(.32,.72,0,1);
+}
+.settings-overlay.open .settings-panel { transform: translateY(0); }
+
+/* "Pill" indicador de arrastre */
+.settings-panel::before {
+  content: '';
+  display: block;
+  width: 40px; height: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.22);
+  margin: 0 auto 16px;
+}
+
+.settings-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 4px;
+}
+.settings-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 13px; letter-spacing: .1em;
+  color: var(--player-color);
+}
+.settings-close-btn {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.13);
+  background: rgba(255,255,255,.08); color: #fff;
+  font-size: 16px; display: flex; align-items: center; justify-content: center;
+}
+.settings-close-btn:active { background: rgba(255,255,255,.18); }
+
+.settings-section {
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+.settings-section:last-child { border-bottom: none; }
+
+.settings-section-label {
+  font-size: 10px; color: var(--cyan); letter-spacing: .12em;
+  margin-bottom: 12px; opacity: .8;
+}
+
+.settings-player-row {
+  display: grid; grid-template-columns: repeat(4,1fr); gap: 10px;
+}
+.settings-player-btn {
+  padding: 13px 6px;
+  border-radius: 14px;
+  border: 2px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.6);
+  font-family: 'Orbitron', sans-serif; font-size: 14px; font-weight: 700;
+  transition: transform .1s, border-color .12s, background .12s, color .12s;
+}
+.settings-player-btn[data-settings-player="1"] { --spb-c: var(--p1); }
+.settings-player-btn[data-settings-player="2"] { --spb-c: var(--p2); }
+.settings-player-btn[data-settings-player="3"] { --spb-c: var(--p3); }
+.settings-player-btn[data-settings-player="4"] { --spb-c: var(--p4); }
+.settings-player-btn.active {
+  border-color: var(--spb-c);
+  background: rgba(255,255,255,.1);
+  color: var(--spb-c);
+}
+.settings-player-btn:active { transform: scale(.91); }
+
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.settings-row--column { flex-direction: column; align-items: stretch; }
+.settings-row-info    { display: grid; gap: 3px; }
+.settings-row-label   { font-size: 14px; color: #eef2ff; }
+.settings-row-hint    { font-size: 11px; color: var(--text-dim); }
+
+/* Toggle switch */
+.toggle-btn {
+  position: relative; width: 52px; height: 30px;
+  border-radius: 999px; border: none;
+  background: rgba(255,255,255,.13);
+  transition: background .18s; flex-shrink: 0;
+}
+.toggle-btn[aria-checked="true"] { background: var(--player-color); }
+.toggle-knob {
+  position: absolute; top: 4px; left: 4px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.38);
+  transition: transform .18s cubic-bezier(.32,.72,0,1);
+}
+.toggle-btn[aria-checked="true"] .toggle-knob { transform: translateX(22px); }
+
+/* Slider de sensibilidad */
+.slider-wrap {
+  display: flex; align-items: center; gap: 10px; margin-top: 10px;
+}
+.slider-label { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.settings-slider {
+  flex: 1;
+  -webkit-appearance: none; appearance: none;
+  height: 6px; border-radius: 999px;
+  background: rgba(255,255,255,.15);
+  outline: none;
+  /* En iOS, los sliders necesitan touch-action: none para no hacer scroll */
+  touch-action: none;
+}
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--player-color);
+  box-shadow: 0 2px 8px var(--player-glow);
+  cursor: pointer;
+  border: 2px solid rgba(255,255,255,.3);
+}
+.settings-slider::-moz-range-thumb {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--player-color);
+  border: 2px solid rgba(255,255,255,.3);
+}
+
+/* Grid de acciones en ajustes */
+.settings-actions-grid { display: grid; gap: 10px; }
+.settings-action-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 15px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.05);
+  color: #eef2ff; font-size: 13px; letter-spacing: .04em;
+  text-align: left;
+  transition: background .1s, transform .1s;
+}
+.settings-action-btn:active { background: rgba(255,255,255,.13); transform: scale(.97); }
+.settings-action-btn--danger  { color: #ff6b6b; border-color: rgba(255,107,107,.22); background: rgba(255,107,107,.06); }
+.settings-action-btn--neutral { color: var(--text-mid); }
+.settings-action-btn svg { opacity: .8; flex-shrink: 0; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   QR SCANNER
+   ═══════════════════════════════════════════════════════════════════ */
+.qr-scanner-modal {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  padding:
+    calc(var(--safe-top)    + 16px)
+    calc(var(--safe-right)  + 16px)
+    calc(var(--safe-bottom) + 16px)
+    calc(var(--safe-left)   + 16px);
+  background: rgba(0,0,0,.92); backdrop-filter: blur(8px);
+  pointer-events: none; opacity: 0;
+  transition: opacity .22s;
+}
+.qr-scanner-modal.open { opacity: 1; pointer-events: auto; }
+
+.qr-scanner-inner   { width: min(100%,420px); display: grid; gap: 16px; }
+.qr-scanner-header  { display: flex; align-items: center; justify-content: space-between; }
+.qr-scanner-title   { font-family: 'Orbitron', sans-serif; font-size: 13px; letter-spacing: .1em; color: var(--cyan); }
+.qr-scanner-close   {
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.09);
+  color: #fff; font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+}
+.qr-scanner-close:active { background: rgba(255,255,255,.2); }
+
+.qr-video-wrap {
+  position: relative; aspect-ratio: 1/1; width: 100%;
+  border-radius: 22px; overflow: hidden;
+  background: #000; border: 1px solid rgba(6,182,212,.3);
+}
+#qrVideo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.qr-canvas { display: none; }
+.qr-frame  { position: absolute; inset: 12%; pointer-events: none; }
+
+.qr-corner { position: absolute; width: 28px; height: 28px; border-color: var(--cyan); border-style: solid; }
+.qr-corner--tl { top: 0; left: 0;     border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+.qr-corner--tr { top: 0; right: 0;    border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
+.qr-corner--bl { bottom: 0; left: 0;  border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+.qr-corner--br { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+
+.qr-scan-line {
+  position: absolute; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  box-shadow: 0 0 8px var(--cyan);
+  animation: scanline 2.2s ease-in-out infinite;
+}
+@keyframes scanline { 0%,100%{top:4%;opacity:1} 50%{top:94%;opacity:.6} }
+
+.qr-scanner-hint   { color: var(--text-mid); font-size: 13px; text-align: center; line-height: 1.5; }
+.qr-scanner-result { min-height: 20px; text-align: center; font-size: 13px; color: var(--cyan); }
+.qr-scanner-result.success { color: #2ecc71; font-family: 'Orbitron', sans-serif; font-size: 12px; letter-spacing: .06em; }
+.qr-scanner-result.error   { color: #ff6b6b; }
