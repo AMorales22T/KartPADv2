@@ -56,8 +56,8 @@ BUTTON_MASKS_1 = {
 
 BUTTON_MASKS_2 = {
     "Y": 0x80,
-    "B": 0x40,
-    "A": 0x20,
+    "B": 0x20,
+    "A": 0x40,
     "X": 0x10,
     "R1": 0x08,
     "L1": 0x04,
