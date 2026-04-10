@@ -72,6 +72,7 @@ const HapticEngine = {
    */
   trigger(ms = 22, pattern = null) {
     if (!state.vibrationEnabled) return;
+    if (this._nativeImpact(ms)) return;
 
     // ── Capa 1: vibración nativa ───────────────────────────────────
     if (typeof navigator.vibrate === 'function') {
@@ -90,11 +91,26 @@ const HapticEngine = {
   /** Patrón doble para confirmaciones (calibrar, conectar…) */
   double(ms = 28) {
     if (!state.vibrationEnabled) return;
+    if (this._nativeImpact(ms, true)) return;
     if (typeof navigator.vibrate === 'function') {
       try { navigator.vibrate([ms, 60, ms]); return; } catch (_) {}
     }
     this._audioClick(ms);
     setTimeout(() => this._audioClick(ms), 90);
+  },
+
+  _nativeImpact(ms, doubleTap = false) {
+    const haptics = window.Capacitor?.Plugins?.Haptics;
+    if (!haptics?.impact) return false;
+
+    const style = ms >= 36 ? 'MEDIUM' : 'LIGHT';
+    try {
+      haptics.impact({ style });
+      if (doubleTap) setTimeout(() => haptics.impact({ style }), 90);
+      return true;
+    } catch (_) {
+      return false;
+    }
   },
 
   _audioClick(ms) {
@@ -144,11 +160,11 @@ const state = {
 
   tiltLastHapticSide: null,
   tiltHapticTs:       0,
+  motionSendTs:       0,
 
   lastShakeTs:        0,
   accelLast:          { x: 0, y: 0, z: 0 },
-
-  pointerEnabled:    false,
+  trickPulseTimers:   new Map(),
   vibrationEnabled:  lsGet('kardpad_vibration') !== 'false',
 
   qrStream:    null,
@@ -386,11 +402,12 @@ function bindController() {
   document.getElementById('settingsGearBtn')?.addEventListener('click', openSettings);
 
   bindButtonPad();
-  bindShakeButton();
-  bindPointerPad();
 
   window.addEventListener('beforeunload', () => disconnect('pagehide'));
   window.addEventListener('pagehide',     () => disconnect('pagehide'));
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) releaseAllButtons();
+  });
   window.addEventListener('blur', releaseAllButtons);
   window.addEventListener('devicemotion', handleDeviceMotion);
 
@@ -413,6 +430,8 @@ function bindController() {
 function bindButtonPad() {
   document.querySelectorAll('[data-btn]').forEach((btn) => {
     const name = btn.dataset.btn; if (!name) return;
+    const mode = btn.dataset.btnMode || 'hold';
+    const pulseMs = Number(btn.dataset.btnPulse || '90');
 
     const press = (e) => {
       e.preventDefault();
@@ -420,13 +439,14 @@ function bindButtonPad() {
       if (btn.dataset.pressed === '1') return;
       btn.dataset.pressed = '1';
       btn.classList.add('pressed');
+      triggerButtonHaptic(name);
+      if (mode === 'pulse') {
+        pulseButton(name, pulseMs, btn);
+        return;
+      }
       state.activeButtons.add(name);
       safeSend({ type: 'button', name, action: 'press' });
       // Háptica diferenciada por tipo de acción
-      if      (name === 'ACCELERATE') HapticEngine.trigger(18);
-      else if (name === 'BRAKE')      HapticEngine.trigger(28);
-      else if (name === 'DRIFT' || name === 'ITEM') HapticEngine.trigger(15);
-      else                            HapticEngine.trigger(12);
     };
 
     const release = (e) => {
@@ -435,6 +455,7 @@ function bindButtonPad() {
       if (e?.pointerId !== undefined) { try { btn.releasePointerCapture(e.pointerId); } catch {} }
       btn.dataset.pressed = '0';
       btn.classList.remove('pressed');
+      if (mode === 'pulse') return;
       state.activeButtons.delete(name);
       safeSend({ type: 'button', name, action: 'release' });
     };
@@ -447,24 +468,98 @@ function bindButtonPad() {
   });
 }
 
-function bindShakeButton() {
-  const btn = document.getElementById('shakeBtn'); if (!btn) return;
-  btn.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    HapticEngine.trigger(50);
-    safeSend({ type: 'shake', intensity: 1.0 });
-    btn.classList.add('pressed');
-  });
-  btn.addEventListener('pointerup',     () => btn.classList.remove('pressed'));
-  btn.addEventListener('pointercancel', () => btn.classList.remove('pressed'));
-  btn.addEventListener('pointerleave',  () => btn.classList.remove('pressed'));
-}
-
 function releaseAllButtons() {
   state.activeButtons.forEach(name => safeSend({ type: 'button', name, action: 'release' }));
   state.activeButtons.clear();
+  state.trickPulseTimers.forEach((timer) => clearTimeout(timer));
+  state.trickPulseTimers.clear();
   document.querySelectorAll('[data-btn]').forEach(b => {
     b.classList.remove('pressed'); b.dataset.pressed = '0';
+  });
+  sendNeutralMotion();
+}
+
+function triggerButtonHaptic(name) {
+  if      (name === 'ACCELERATE') HapticEngine.trigger(18);
+  else if (name === 'BRAKE')      HapticEngine.trigger(28);
+  else if (name === 'DRIFT' || name === 'ITEM') HapticEngine.trigger(15);
+  else if (name === 'TRICK')      HapticEngine.trigger(40);
+  else                            HapticEngine.trigger(12);
+}
+
+function pulseButton(name, durationMs = 90, element = null) {
+  const activeTimer = state.trickPulseTimers.get(name);
+  if (activeTimer) clearTimeout(activeTimer);
+
+  state.activeButtons.delete(name);
+  safeSend({ type: 'button', name, action: 'press' });
+
+  if (element) {
+    element.dataset.pressed = '1';
+    element.classList.add('pressed');
+  }
+
+  const timer = setTimeout(() => {
+    safeSend({ type: 'button', name, action: 'release' });
+    state.trickPulseTimers.delete(name);
+    if (element) {
+      element.dataset.pressed = '0';
+      element.classList.remove('pressed');
+    }
+  }, durationMs);
+
+  state.trickPulseTimers.set(name, timer);
+}
+
+function sendNeutralMotion() {
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
+  safeSend({
+    type: 'motion',
+    accel: { x: 0, y: 0, z: 1 },
+    gyro:  { pitch: 0, yaw: 0, roll: 0 },
+    timestamp: Date.now(),
+  });
+}
+
+function transformMotionToDsu(acc, rot, angle, steering) {
+  const gravityX = (acc.x ?? 0) / 9.80665;
+  const gravityY = (acc.y ?? 0) / 9.80665;
+  const gravityZ = (acc.z ?? 0) / 9.80665;
+  const gyroPitch = Number(rot.beta || 0);
+  const gyroRoll = Number(rot.gamma || 0);
+  const gyroYaw = Number(rot.alpha || 0);
+
+  if (angle === 90 || angle === -270) {
+    return {
+      accel: { x: gravityY, y: -gravityX, z: gravityZ },
+      gyro:  { pitch: gyroRoll, yaw: gyroYaw, roll: -gyroPitch + steering * 35 },
+    };
+  }
+
+  if (angle === 270 || angle === -90) {
+    return {
+      accel: { x: -gravityY, y: gravityX, z: gravityZ },
+      gyro:  { pitch: -gyroRoll, yaw: gyroYaw, roll: gyroPitch + steering * 35 },
+    };
+  }
+
+  return {
+    accel: { x: gravityX, y: gravityY, z: gravityZ },
+    gyro:  { pitch: gyroPitch, yaw: gyroYaw, roll: gyroRoll + steering * 35 },
+  };
+}
+
+function sendMotionPacket(acc, rot, steering, angle) {
+  const now = Date.now();
+  if (now - state.motionSendTs < 14) return;
+  state.motionSendTs = now;
+
+  const motion = transformMotionToDsu(acc, rot, angle, steering);
+  safeSend({
+    type: 'motion',
+    accel: motion.accel,
+    gyro: motion.gyro,
+    timestamp: now,
   });
 }
 
@@ -492,6 +587,7 @@ function disableTilt() {
   updateTiltIndicator(0);
   updateTiltUi();
   setTiltCopy('Activa el Volante para girar.');
+  sendNeutralMotion();
 }
 
 async function requestMotionPermission() {
@@ -508,7 +604,7 @@ async function requestMotionPermission() {
 }
 
 function calibrateTilt() {
-  if (!state.lastTiltRaw) { setTiltCopy('Sujeta el móvil horizontal y pulsa "Centrar".'); return; }
+  if (state.lastTiltRaw == null) { setTiltCopy('Sujeta el móvil horizontal y pulsa "Centrar".'); return; }
   state.tiltNeutral  = state.lastTiltRaw;
   state.tiltSmoothed = 0;
   state.tiltLastHapticSide = null;
@@ -526,6 +622,7 @@ function getScreenAngle() {
 function handleDeviceMotion(ev) {
   const acc = ev.accelerationIncludingGravity;
   if (!acc) return;
+  const rot = ev.rotationRate || {};
 
   // ── Inclinación del volante ────────────────────────────────────
   const angle = getScreenAngle();
@@ -544,9 +641,11 @@ function handleDeviceMotion(ev) {
     const sens     = TILT_SENSE_MAP[state.tiltSensLevel] || TILT_SENSE_MAP[3];
     const smoothed = Math.abs(state.tiltSmoothed) > sens.deadzone ? state.tiltSmoothed : 0;
 
-    safeSend({ type: 'tilt', axis: 'roll', value: smoothed, timestamp: Date.now() });
     updateTiltIndicator(smoothed);
     triggerTiltHaptic(smoothed, sens.threshold);
+    sendMotionPacket(acc, rot, smoothed, angle);
+  } else {
+    updateTiltIndicator(0);
   }
 
   // ── Detección de shake ────────────────────────────────────────
@@ -561,7 +660,7 @@ function handleDeviceMotion(ev) {
     const now = Date.now();
     if (now - state.lastShakeTs > SHAKE_DEBOUNCE_MS) {
       state.lastShakeTs = now;
-      safeSend({ type: 'shake', intensity: clamp(jerk / 40, 0, 1) });
+      pulseButton('TRICK', 90, document.getElementById('shakeBtn'));
       flashShakeButton();
     }
   }
@@ -612,36 +711,6 @@ function flashShakeButton() {
    MÓDULO: PUNTERO TÁCTIL
    ═══════════════════════════════════════════════════════════════════════ */
 
-function bindPointerPad() {
-  const pad = document.getElementById('pointerPad'); if (!pad) return;
-  const sendPointerMove = (e) => {
-    const r  = pad.getBoundingClientRect();
-    const nx = clamp((e.clientX - r.left) / r.width,  0, 1);
-    const ny = clamp((e.clientY - r.top)  / r.height, 0, 1);
-    safeSend({ type:'pointer_move', x:nx, y:ny, screen_w: window.screen.width||1920, screen_h: window.screen.height||1080 });
-  };
-  let ptId = null;
-  pad.addEventListener('pointerdown', (e) => {
-    e.preventDefault(); ptId = e.pointerId; pad.setPointerCapture(e.pointerId);
-    sendPointerMove(e); safeSend({ type:'pointer_click', action:'press' }); HapticEngine.trigger(18);
-  }, { passive: false });
-  pad.addEventListener('pointermove', (e) => {
-    if (e.pointerId !== ptId) return; e.preventDefault(); sendPointerMove(e);
-  }, { passive: false });
-  pad.addEventListener('pointerup', (e) => {
-    if (e.pointerId !== ptId) return; e.preventDefault(); ptId = null;
-    safeSend({ type:'pointer_click', action:'release' });
-  }, { passive: false });
-  pad.addEventListener('pointercancel', (e) => {
-    if (e.pointerId !== ptId) return; ptId = null;
-    safeSend({ type:'pointer_click', action:'release' });
-  });
-}
-
-function setPointerVisible(visible) {
-  const cluster = document.getElementById('pointer-cluster');
-  if (cluster) cluster.style.display = visible ? 'flex' : 'none';
-}
 
 /* ═══════════════════════════════════════════════════════════════════════
    MÓDULO: AJUSTES
@@ -671,15 +740,8 @@ function initSettingsPanel() {
     });
   }
 
-  const ptrToggle = document.getElementById('pointerToggle');
-  if (ptrToggle) {
-    ptrToggle.setAttribute('aria-checked', 'false');
-    ptrToggle.addEventListener('click', () => {
-      state.pointerEnabled = !state.pointerEnabled;
-      ptrToggle.setAttribute('aria-checked', String(state.pointerEnabled));
-      setPointerVisible(state.pointerEnabled);
-    });
-  }
+  document.getElementById('pointer-cluster')?.remove();
+  document.getElementById('pointerToggle')?.closest('.settings-section')?.remove();
 
   const slider = document.getElementById('tiltSensSlider');
   if (slider) {

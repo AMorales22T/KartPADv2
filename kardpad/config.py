@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+APP_NAME = "KardPad"
+HTTP_PORT = 3000
+WS_PORT = 8000
+UDP_PORT = 26760
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+PLAYER_COUNT = 4
+DSU_PROTOCOL_VERSION = 1001
+DSU_SERVER_ID = 0x4B504144  # "KPAD"
+DSU_MESSAGE_VERSION = 0x100000
+DSU_MESSAGE_PORTS = 0x100001
+DSU_MESSAGE_DATA = 0x100002
+DSU_CLIENT_TIMEOUT_SECONDS = 5.0
+DSU_BROADCAST_HZ = 60.0
+
