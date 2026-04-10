@@ -1,0 +1,112 @@
+name: Build KardPad IPA + APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm install
+      - name: Init Capacitor iOS project
+        run: |
+          npx cap add ios
+          npx cap sync ios
+      - name: Patch Info.plist
+        run: |
+          PLIST="ios/App/App/Info.plist"
+          /usr/libexec/PlistBuddy -c \
+            "Add :NSAppTransportSecurity dict" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c \
+            "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$PLIST" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c \
+            "Set :NSAppTransportSecurity:NSAllowsArbitraryLoads true" "$PLIST"
+          /usr/libexec/PlistBuddy -c \
+            "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" "$PLIST" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c \
+            "Set :NSAppTransportSecurity:NSAllowsLocalNetworking true" "$PLIST"
+          /usr/libexec/PlistBuddy -c \
+            "Add :NSAppTransportSecurity:NSAllowsArbitraryLoadsInWebContent bool true" "$PLIST" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c \
+            "Set :NSAppTransportSecurity:NSAllowsArbitraryLoadsInWebContent true" "$PLIST"
+          /usr/libexec/PlistBuddy -c \
+            "Add :NSLocalNetworkUsageDescription string 'KardPad necesita acceso a la red local para conectarse al servidor.'" "$PLIST" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c \
+            "Set :NSLocalNetworkUsageDescription 'KardPad necesita acceso a la red local para conectarse al servidor.'" "$PLIST"
+          /usr/libexec/PlistBuddy -c \
+            "Add :NSBonjourServices array" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c \
+            "Add :NSBonjourServices: string '_http._tcp'" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c \
+            "Add :NSBonjourServices: string '_ws._tcp'" "$PLIST" 2>/dev/null || true
+      - name: Install CocoaPods
+        run: |
+          cd ios/App
+          pod install
+      - name: Build with Xcode (unsigned)
+        run: |
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath $RUNNER_TEMP/KardPad.xcarchive \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE=""
+      - name: Package IPA
+        run: |
+          mkdir -p /tmp/Payload
+          cp -r "$RUNNER_TEMP/KardPad.xcarchive/Products/Applications/App.app" /tmp/Payload/
+          cd /tmp
+          zip -r KardPad.ipa Payload/
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KardPad-IPA
+          path: /tmp/KardPad.ipa
+          retention-days: 30
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Install dependencies
+        run: npm install
+      - name: Init Capacitor Android project
+        run: |
+          npx cap add android
+          npx cap sync android
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KardPad-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+         
