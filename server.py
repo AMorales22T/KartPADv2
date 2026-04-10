@@ -16,11 +16,11 @@ import socket
 import threading
 import time
 import struct
+import zlib
 from collections import defaultdict, deque
 
 import websockets
 from pynput import keyboard, mouse
-
 # ───────────────────────────────────────────────────────────────────────
 #  ESTADO DEL MANDO (acelerómetro / giroscopio)
 # ───────────────────────────────────────────────────────────────────────
@@ -42,7 +42,28 @@ UDP_IP   = "127.0.0.1"
 UDP_PORT = 26760
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(("0.0.0.0", 26760))
 
+# Windows puede convertir un ICMP "port unreachable" en WinError 10054
+# sobre recvfrom() en sockets UDP. Lo desactivamos para que el hilo DSU
+# no muera cuando un cliente deje de escuchar.
+if os.name == "nt" and hasattr(socket, "SIO_UDP_CONNRESET"):
+    try:
+        sock.ioctl(socket.SIO_UDP_CONNRESET, struct.pack("I", 0))
+    except (OSError, ValueError):
+        pass
+
+DSU_PROTOCOL_VERSION = 1001
+DSU_SERVER_ID = 0x4B504144  # "KPAD"
+DSU_MESSAGE_VERSION = 0x100000
+DSU_MESSAGE_PORTS = 0x100001
+DSU_MESSAGE_DATA = 0x100002
+DSU_SLOT = 0
+DSU_MAC = b"\x4B\x50\x41\x44\x00\x01"
+DSU_CLIENT_TIMEOUT = 60.0
+
+dsu_clients = {}
+dsu_clients_lock = threading.Lock()
 # ───────────────────────────────────────────────────────────────────────
 #  CONFIGURACIÓN DE PUERTOS Y RUTAS
 # ───────────────────────────────────────────────────────────────────────
@@ -399,7 +420,7 @@ def send_dsu_packet():
       fff gyro  pitch roll yaw
       ff  padding
     """
-    timestamp = int(time.time() * 1000) & 0xFFFFFFFF  # recortar a uint32
+    timestamp = int(time.time() * 1000) & 0xFFFFFFFF # recortar a uint32
 
     packet = struct.pack(
         "<4sHHiIIBBBBBBffffffff",
@@ -426,16 +447,224 @@ def send_dsu_packet():
     )
     sock.sendto(packet, (UDP_IP, UDP_PORT))
 
+def send_dsu_response(addr):
+    timestamp = int(time.time() * 1000) & 0xFFFFFFFF
 
+    fields = (
+        b"DSUS",
+        1001,
+        84,
+        0,
+        0x12345678,
+        timestamp,
+        0,
+        2,
+        2,
+        0,
+        0x05,
+        0,
+        float(controller_state["accel_x"]),
+        float(controller_state["accel_y"]),
+        float(controller_state["accel_z"]),
+        float(controller_state["gyro_pitch"]),
+        float(controller_state["gyro_roll"]),
+        float(controller_state["gyro_yaw"]),
+        0.0,
+        0.0,
+    )
+
+    assert len(fields) == 20, f"Esperaba 20 campos, tengo {len(fields)}"
+
+    packet = struct.pack("<4sHHIIBBBBBBffffffff", *fields)
+    sock.sendto(packet, addr)
 def dsu_loop():
-    """Bucle continuo que envía datos de movimiento a ~60 fps."""
+    send_dsu_handshake()  # 👈 IMPORTANTE
+
     while True:
         send_dsu_packet()
         time.sleep(1 / 60)
+def dsu_server_loop():
+    print("[DSU] Escuchando en UDP 26760...")
 
+    while True:
+        data, addr = sock.recvfrom(1024)
+
+        if data.startswith(b"DSUC"):
+            print(f"[DSU] Petición de {addr}")
+
+            send_dsu_response(addr)
 # ───────────────────────────────────────────────────────────────────────
 #  PUNTO DE ENTRADA
 # ───────────────────────────────────────────────────────────────────────
+
+def dsu_build_packet(message_type, payload):
+    header = struct.pack(
+        "<4sHHII",
+        b"DSUS",
+        DSU_PROTOCOL_VERSION,
+        len(payload) + 4,
+        0,
+        DSU_SERVER_ID,
+    )
+    packet = header + struct.pack("<I", message_type) + payload
+    crc = zlib.crc32(packet) & 0xFFFFFFFF
+    return packet[:8] + struct.pack("<I", crc) + packet[12:]
+
+
+def dsu_port_header(slot, connected):
+    if connected:
+        state = 2
+        model = 2
+        connection = 0
+        mac = DSU_MAC
+        battery = 0x05
+    else:
+        state = 0
+        model = 0
+        connection = 0
+        mac = b"\x00" * 6
+        battery = 0x00
+
+    return struct.pack("<BBBB6sB", slot, state, model, connection, mac, battery)
+
+
+def send_dsu_version(addr):
+    payload = struct.pack("<H", DSU_PROTOCOL_VERSION)
+    sock.sendto(dsu_build_packet(DSU_MESSAGE_VERSION, payload), addr)
+
+
+def send_dsu_port_info(addr, slot):
+    connected = slot == DSU_SLOT
+    payload = dsu_port_header(slot, connected) + b"\x00"
+    sock.sendto(dsu_build_packet(DSU_MESSAGE_PORTS, payload), addr)
+
+
+def send_dsu_data(addr, packet_number):
+    motion_timestamp = time.time_ns() // 1000
+
+    payload = bytearray()
+    payload.extend(dsu_port_header(DSU_SLOT, True))
+    payload.extend(struct.pack("<B", 1))
+    payload.extend(struct.pack("<I", packet_number))
+    payload.extend(
+        bytes(
+            [
+                0,
+                0,
+                0,
+                0,
+                128,
+                128,
+                128,
+                128,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ]
+        )
+    )
+    payload.extend(struct.pack("<BBHH", 0, 0, 0, 0))
+    payload.extend(struct.pack("<BBHH", 0, 0, 0, 0))
+    payload.extend(
+        struct.pack(
+            "<Qffffff",
+            motion_timestamp,
+            float(controller_state["accel_x"]),
+            float(controller_state["accel_y"]),
+            float(controller_state["accel_z"]),
+            float(controller_state["gyro_pitch"]),
+            float(controller_state["gyro_yaw"]),
+            float(controller_state["gyro_roll"]),
+        )
+    )
+
+    sock.sendto(dsu_build_packet(DSU_MESSAGE_DATA, bytes(payload)), addr)
+
+
+def dsu_register_client(addr):
+    with dsu_clients_lock:
+        client = dsu_clients.setdefault(addr, {"packet_number": 0})
+        client["last_seen"] = time.monotonic()
+        client["packet_number"] += 1
+        packet_number = client["packet_number"]
+
+    send_dsu_data(addr, packet_number)
+
+
+def handle_dsu_request(data, addr):
+    if len(data) < 20:
+        return
+
+    magic, protocol, length, _crc, _client_id, message_type = struct.unpack(
+        "<4sHHIII", data[:20]
+    )
+    if magic != b"DSUC" or protocol != DSU_PROTOCOL_VERSION:
+        return
+
+    payload = data[20 : 16 + length]
+
+    if message_type == DSU_MESSAGE_VERSION:
+        send_dsu_version(addr)
+        return
+
+    if message_type == DSU_MESSAGE_PORTS:
+        if len(payload) < 4:
+            return
+        requested = struct.unpack("<i", payload[:4])[0]
+        slots = payload[4 : 4 + max(0, requested)]
+        for slot in slots:
+            send_dsu_port_info(addr, slot)
+        return
+
+    if message_type != DSU_MESSAGE_DATA or len(payload) < 8:
+        return
+
+    reg_flags = payload[0]
+    slot = payload[1]
+    mac = payload[2:8]
+
+    wants_all = reg_flags == 0
+    wants_slot = bool(reg_flags & 0x01) and slot == DSU_SLOT
+    wants_mac = bool(reg_flags & 0x02) and mac == DSU_MAC
+
+    if wants_all or wants_slot or wants_mac:
+        dsu_register_client(addr)
+
+
+def dsu_broadcast_loop():
+    while True:
+        now = time.monotonic()
+        targets = []
+
+        with dsu_clients_lock:
+            stale = [
+                addr
+                for addr, client in dsu_clients.items()
+                if now - client["last_seen"] > DSU_CLIENT_TIMEOUT
+            ]
+            for addr in stale:
+                dsu_clients.pop(addr, None)
+
+            for addr, client in dsu_clients.items():
+                client["packet_number"] += 1
+                targets.append((addr, client["packet_number"]))
+
+        for addr, packet_number in targets:
+            send_dsu_data(addr, packet_number)
+
+        time.sleep(1 / 60)
+
+
+def dsu_server_loop():
+    print(f"[DSU] Servidor DSU escuchando en udp://0.0.0.0:{UDP_PORT}")
+
+    while True:
+        try:
+            data, addr = sock.recvfrom(1024)
+        except ConnectionResetError:
+            continue
+        if data.startswith(b"DSUC"):
+            print(f"[DSU] Petición de {addr}")
+            handle_dsu_request(data, addr)
+
 
 async def main():
     local_ip = get_local_ip()
@@ -450,13 +679,15 @@ async def main():
     print("║  1. Conecta el móvil a la misma Wi-Fi        ║")
     print("║  2. Abre la URL en el navegador del móvil    ║")
     print("║  3. Arranca Dolphin y carga Mario Kart Wii   ║")
+    print("║  4. DSU motion: 127.0.0.1:26760 (slot 0)    ║")
     print("║  Ctrl+C para salir                           ║")
     print("╚══════════════════════════════════════════════╝\n")
 
     print_qr(url)
 
-    # Hilo DSU (cemuhook UDP ~60 fps)
-    threading.Thread(target=dsu_loop, daemon=True).start()
+    # Hilos DSU (servidor y broadcast ~60 fps)
+    threading.Thread(target=dsu_server_loop, daemon=True).start()
+    threading.Thread(target=dsu_broadcast_loop, daemon=True).start()
 
     # Hilo HTTP
     http_thread = threading.Thread(target=start_http_server, daemon=True)
