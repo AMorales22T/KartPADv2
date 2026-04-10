@@ -1,0 +1,475 @@
+#!/usr/bin/env python3
+# ═══════════════════════════════════════════════════════════════════════
+#  KardPad — server.py  v1.0
+#  Convierte un móvil en mando de Mario Kart para Dolphin Emulator.
+#  Basado en la arquitectura de SmashPad (HTTP + WebSocket en paralelo).
+#
+#  Dependencias:  pip install websockets pynput
+#  Opcional:      pip install qrcode pillow   (muestra QR en terminal)
+# ═══════════════════════════════════════════════════════════════════════
+
+import asyncio
+import http.server
+import json
+import os
+import socket
+import threading
+import time
+import struct
+from collections import defaultdict, deque
+
+import websockets
+from pynput import keyboard, mouse
+
+# ───────────────────────────────────────────────────────────────────────
+#  ESTADO DEL MANDO (acelerómetro / giroscopio)
+# ───────────────────────────────────────────────────────────────────────
+
+controller_state = {
+    "accel_x": 0.0,
+    "accel_y": 0.0,
+    "accel_z": 1.0,
+    "gyro_pitch": 0.0,
+    "gyro_roll": 0.0,
+    "gyro_yaw": 0.0,
+}
+
+# ───────────────────────────────────────────────────────────────────────
+#  SOCKET UDP (DSU / cemuhook)
+# ───────────────────────────────────────────────────────────────────────
+
+UDP_IP   = "127.0.0.1"
+UDP_PORT = 26760
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+# ───────────────────────────────────────────────────────────────────────
+#  CONFIGURACIÓN DE PUERTOS Y RUTAS
+# ───────────────────────────────────────────────────────────────────────
+
+HTTP_PORT = 3000
+WS_PORT   = 8000
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+
+# ───────────────────────────────────────────────────────────────────────
+#  MAPA DE CONTROLES POR JUGADOR  (Dolphin: Wiimote horizontal)
+# ───────────────────────────────────────────────────────────────────────
+
+KART_KEY_MAP = {
+    1: {
+        "ACCELERATE": "w",
+        "BRAKE":      "s",
+        "DRIFT":      "a",
+        "ITEM":       "d",
+        "USE_ITEM":   keyboard.Key.space,
+        "START":      keyboard.Key.enter,
+    },
+    2: {
+        "ACCELERATE": "i",
+        "BRAKE":      "k",
+        "DRIFT":      "j",
+        "ITEM":       "l",
+        "USE_ITEM":   keyboard.Key.tab,
+        "START":      keyboard.Key.backspace,
+    },
+    3: {
+        "ACCELERATE": keyboard.Key.up,
+        "BRAKE":      keyboard.Key.down,
+        "DRIFT":      keyboard.Key.left,
+        "ITEM":       keyboard.Key.right,
+        "USE_ITEM":   keyboard.Key.ctrl_l,
+        "START":      keyboard.Key.shift_l,
+    },
+    4: {
+        "ACCELERATE": keyboard.Key.f5,
+        "BRAKE":      keyboard.Key.f6,
+        "DRIFT":      keyboard.Key.f7,
+        "ITEM":       keyboard.Key.f8,
+        "USE_ITEM":   keyboard.Key.f9,
+        "START":      keyboard.Key.f10,
+    },
+}
+
+TILT_KEYS = {
+    1: { "LEFT": keyboard.Key.left,  "RIGHT": keyboard.Key.right },
+    2: { "LEFT": keyboard.Key.left,  "RIGHT": keyboard.Key.right },
+    3: { "LEFT": keyboard.Key.left,  "RIGHT": keyboard.Key.right },
+    4: { "LEFT": keyboard.Key.left,  "RIGHT": keyboard.Key.right },
+}
+
+# ───────────────────────────────────────────────────────────────────────
+#  PARÁMETROS DE INCLINACIÓN
+# ───────────────────────────────────────────────────────────────────────
+
+TILT_DEADZONE    = 0.15
+TILT_THRESHOLD   = 0.28
+TILT_SMOOTH_LEN  = 4
+
+# ───────────────────────────────────────────────────────────────────────
+#  PARÁMETROS DE SHAKE
+# ───────────────────────────────────────────────────────────────────────
+
+SHAKE_DEBOUNCE_MS = 220
+
+# ───────────────────────────────────────────────────────────────────────
+#  INSTANCIAS DE pynput
+# ───────────────────────────────────────────────────────────────────────
+
+kb         = keyboard.Controller()
+mouse_ctrl = mouse.Controller()
+
+# ───────────────────────────────────────────────────────────────────────
+#  ESTADO GLOBAL POR JUGADOR
+# ───────────────────────────────────────────────────────────────────────
+
+active_keys:     dict[int, set]      = defaultdict(set)
+active_tilt_dir: dict[int, str|None] = defaultdict(lambda: None)
+tilt_buffer:     dict[int, deque]    = defaultdict(lambda: deque(maxlen=TILT_SMOOTH_LEN))
+last_shake_ts:   dict[int, float]    = defaultdict(float)
+pynput_lock = threading.Lock()
+
+# ───────────────────────────────────────────────────────────────────────
+#  HELPERS DE TECLADO / RATÓN
+# ───────────────────────────────────────────────────────────────────────
+
+def _press(key):
+    with pynput_lock:
+        try:
+            kb.press(key)
+        except Exception as e:
+            print(f"  [KB] Error al presionar {key}: {e}")
+
+def _release(key):
+    with pynput_lock:
+        try:
+            kb.release(key)
+        except Exception as e:
+            print(f"  [KB] Error al soltar {key}: {e}")
+
+def _mouse_move(dx: float, dy: float):
+    with pynput_lock:
+        try:
+            mouse_ctrl.move(int(dx), int(dy))
+        except Exception as e:
+            print(f"  [MOUSE] Error al mover: {e}")
+
+def _mouse_click(action: str):
+    with pynput_lock:
+        try:
+            if action == "press":
+                mouse_ctrl.press(mouse.Button.left)
+            else:
+                mouse_ctrl.release(mouse.Button.left)
+        except Exception as e:
+            print(f"  [MOUSE] Error click {action}: {e}")
+
+# ───────────────────────────────────────────────────────────────────────
+#  LIBERACIÓN TOTAL DE INPUTS DE UN JUGADOR
+# ───────────────────────────────────────────────────────────────────────
+
+def _release_all(player_id: int):
+    for key in list(active_keys[player_id]):
+        _release(key)
+    active_keys[player_id].clear()
+
+    tilt_dir = active_tilt_dir[player_id]
+    if tilt_dir:
+        tilt_key = TILT_KEYS.get(player_id, {}).get(tilt_dir)
+        if tilt_key:
+            _release(tilt_key)
+    active_tilt_dir[player_id] = None
+    tilt_buffer[player_id].clear()
+    print(f"  [P{player_id}] 🔓 Inputs liberados")
+
+# ───────────────────────────────────────────────────────────────────────
+#  PROCESADORES DE INPUT
+# ───────────────────────────────────────────────────────────────────────
+
+def handle_button(player_id: int, name: str, action: str):
+    key_map = KART_KEY_MAP.get(player_id, {})
+    key = key_map.get(name)
+    if key is None:
+        return
+
+    if action == "press":
+        if key not in active_keys[player_id]:
+            active_keys[player_id].add(key)
+            _press(key)
+    elif action == "release":
+        if key in active_keys[player_id]:
+            active_keys[player_id].discard(key)
+            _release(key)
+
+
+def handle_tilt(player_id: int, value: float):
+    tilt_buffer[player_id].append(value)
+    buf = tilt_buffer[player_id]
+    smoothed = sum(buf) / len(buf)
+
+    if abs(smoothed) < TILT_DEADZONE:
+        smoothed = 0.0
+
+    new_dir: str | None = None
+    if smoothed > TILT_THRESHOLD:
+        new_dir = "RIGHT"
+    elif smoothed < -TILT_THRESHOLD:
+        new_dir = "LEFT"
+
+    old_dir = active_tilt_dir[player_id]
+    if new_dir == old_dir:
+        return
+
+    tilt_keys = TILT_KEYS.get(player_id, {})
+    if old_dir:
+        old_key = tilt_keys.get(old_dir)
+        if old_key:
+            _release(old_key)
+    if new_dir:
+        new_key = tilt_keys.get(new_dir)
+        if new_key:
+            _press(new_key)
+
+    active_tilt_dir[player_id] = new_dir
+
+
+def handle_shake(player_id: int, intensity: float):
+    now = time.time()
+    elapsed_ms = (now - last_shake_ts[player_id]) * 1000
+    if elapsed_ms < SHAKE_DEBOUNCE_MS:
+        return
+
+    last_shake_ts[player_id] = now
+    key_map = KART_KEY_MAP.get(player_id, {})
+    key = key_map.get("USE_ITEM")
+    if key:
+        _press(key)
+        threading.Timer(0.08, _release, args=(key,)).start()
+        print(f"  [P{player_id}] 💥 Shake! (intensidad {intensity:.2f})")
+
+
+def handle_pointer_move(player_id: int, x: float, y: float, screen_w: int, screen_h: int):
+    abs_x = int(x * screen_w)
+    abs_y = int(y * screen_h)
+    with pynput_lock:
+        try:
+            mouse_ctrl.position = (abs_x, abs_y)
+        except Exception:
+            pass
+
+# ───────────────────────────────────────────────────────────────────────
+#  DETECCIÓN DE IP LOCAL
+# ───────────────────────────────────────────────────────────────────────
+
+def get_local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+# ───────────────────────────────────────────────────────────────────────
+#  MANEJADOR WEBSOCKET
+# ───────────────────────────────────────────────────────────────────────
+
+SCREEN_W = 1920
+SCREEN_H = 1080
+
+async def handle_connection(websocket):
+    player_id = None
+    remote = websocket.remote_address
+    print(f"\n[WS] 🔌 Conexión nueva desde {remote[0]}:{remote[1]}")
+
+    try:
+        raw = await asyncio.wait_for(websocket.recv(), timeout=10)
+        msg = json.loads(raw)
+        player_id = int(msg.get("player", 1))
+        if player_id not in range(1, 5):
+            player_id = 1
+
+        await websocket.send(json.dumps({
+            "status": "connected",
+            "player": player_id,
+            "mode":   "kart",
+        }))
+        print(f"  [P{player_id}] 🎮 Conectado ({remote[0]})")
+
+        async for raw in websocket:
+            try:
+                data = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+            msg_type = data.get("type")
+
+            if msg_type == "button":
+                handle_button(player_id, data.get("name", ""), data.get("action", ""))
+
+            elif msg_type == "tilt":
+                # Actualiza el estado de giroscopio para DSU/UDP
+                value = float(data.get("value", 0))
+                controller_state["gyro_yaw"] = value
+                # _press() con teclas izq/der desactivado — ahora se usa DSU/UDP
+                # handle_tilt(player_id, value)
+
+            elif msg_type == "shake":
+                handle_shake(player_id, float(data.get("intensity", 1.0)))
+
+            elif msg_type == "pointer_move":
+                handle_pointer_move(
+                    player_id,
+                    float(data.get("x", 0.5)),
+                    float(data.get("y", 0.5)),
+                    data.get("screen_w", SCREEN_W),
+                    data.get("screen_h", SCREEN_H),
+                )
+
+            elif msg_type == "pointer_click":
+                _mouse_click(data.get("action", "press"))
+
+    except asyncio.TimeoutError:
+        print(f"  [WS] ⏱ Timeout esperando handshake de {remote[0]}")
+    except websockets.exceptions.ConnectionClosedOK:
+        pass
+    except websockets.exceptions.ConnectionClosedError as e:
+        print(f"  [P{player_id}] ⚠ Conexión cerrada con error: {e}")
+    except Exception as e:
+        print(f"  [P{player_id}] ❌ Error inesperado: {e}")
+    finally:
+        if player_id is not None:
+            _release_all(player_id)
+            print(f"  [P{player_id}] 👋 Desconectado")
+
+# ───────────────────────────────────────────────────────────────────────
+#  SERVIDOR HTTP (archivos estáticos)
+# ───────────────────────────────────────────────────────────────────────
+
+class StaticHandler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=STATIC_DIR, **kwargs)
+
+    def log_message(self, format, *args):
+        pass
+
+
+def start_http_server():
+    httpd = http.server.HTTPServer(("0.0.0.0", HTTP_PORT), StaticHandler)
+    print(f"[HTTP] Servidor estático en puerto {HTTP_PORT}")
+    httpd.serve_forever()
+
+# ───────────────────────────────────────────────────────────────────────
+#  QR OPCIONAL EN TERMINAL
+# ───────────────────────────────────────────────────────────────────────
+
+def print_qr(url: str):
+    try:
+        import qrcode
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(url)
+        qr.make(fit=True)
+        qr.print_ascii(invert=True)
+    except ImportError:
+        pass
+
+# ───────────────────────────────────────────────────────────────────────
+#  DSU / CEMUHOOK — envío UDP de datos de movimiento a Dolphin
+# ───────────────────────────────────────────────────────────────────────
+
+def send_dsu_packet():
+    """
+    Envía un paquete DSU (cemuhook) con el estado actual del giroscopio
+    y acelerómetro.
+
+    Formato: "<4sHHiIIBBBBBBffffffff"  →  20 valores, 58 bytes
+      4s  magic         "DSUS"
+      H   protocol      1001
+      H   length        0  (relleno)
+      i   crc           0  (relleno)
+      I   server_id
+      I   timestamp     uint32 (ms, recortado para evitar overflow)
+      B   slot
+      B   state
+      B   model
+      B   connection
+      B   battery
+      B   buttons
+      fff accel x y z
+      fff gyro  pitch roll yaw
+      ff  padding
+    """
+    timestamp = int(time.time() * 1000) & 0xFFFFFFFF  # recortar a uint32
+
+    packet = struct.pack(
+        "<4sHHiIIBBBBBBffffffff",
+        b"DSUS",        # magic
+        1001,           # protocol_version
+        0,              # length  (relleno)
+        0,              # crc     (relleno)
+        0x12345678,     # server_id
+        timestamp,      # timestamp uint32
+        0,              # slot
+        2,              # state
+        2,              # model
+        0,              # connection
+        0x05,           # battery
+        0,              # buttons
+        controller_state["accel_x"],
+        controller_state["accel_y"],
+        controller_state["accel_z"],
+        controller_state["gyro_pitch"],
+        controller_state["gyro_roll"],
+        controller_state["gyro_yaw"],
+        0.0,            # padding
+        0.0,            # padding
+    )
+    sock.sendto(packet, (UDP_IP, UDP_PORT))
+
+
+def dsu_loop():
+    """Bucle continuo que envía datos de movimiento a ~60 fps."""
+    while True:
+        send_dsu_packet()
+        time.sleep(1 / 60)
+
+# ───────────────────────────────────────────────────────────────────────
+#  PUNTO DE ENTRADA
+# ───────────────────────────────────────────────────────────────────────
+
+async def main():
+    local_ip = get_local_ip()
+    url = f"http://{local_ip}:{HTTP_PORT}"
+
+    print("╔══════════════════════════════════════════════╗")
+    print("║          KardPad — Mario Kart Server         ║")
+    print("╠══════════════════════════════════════════════╣")
+    print(f"║  Mando:    {url:<34} ║")
+    print(f"║  WS:       ws://{local_ip}:{WS_PORT:<27} ║")
+    print("╠══════════════════════════════════════════════╣")
+    print("║  1. Conecta el móvil a la misma Wi-Fi        ║")
+    print("║  2. Abre la URL en el navegador del móvil    ║")
+    print("║  3. Arranca Dolphin y carga Mario Kart Wii   ║")
+    print("║  Ctrl+C para salir                           ║")
+    print("╚══════════════════════════════════════════════╝\n")
+
+    print_qr(url)
+
+    # Hilo DSU (cemuhook UDP ~60 fps)
+    threading.Thread(target=dsu_loop, daemon=True).start()
+
+    # Hilo HTTP
+    http_thread = threading.Thread(target=start_http_server, daemon=True)
+    http_thread.start()
+
+    # Servidor WebSocket principal
+    print(f"[WS]  Escuchando en ws://0.0.0.0:{WS_PORT}\n")
+    async with websockets.serve(handle_connection, "0.0.0.0", WS_PORT):
+        await asyncio.Future()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\n[KardPad] Servidor detenido. ¡Hasta la próxima! 🏁")
