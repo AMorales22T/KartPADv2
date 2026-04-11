@@ -21,6 +21,7 @@ const TILT_SENSE_MAP = {
   4: { deadzone: 0.04, threshold: 0.18 },
   5: { deadzone: 0.02, threshold: 0.14 },
 };
+const DPAD_BUTTONS = new Set(['UP', 'DOWN', 'LEFT', 'RIGHT']);
 
 // EMA: alpha = peso del valor nuevo (mayor → más rápido pero menos suave)
 const TILT_SMOOTH_ALPHA = 0.3;
@@ -156,6 +157,7 @@ const state = {
   tiltNeutral:       null,
   tiltSmoothed:      0,
   tiltSensLevel:     Number(lsGet('kardpad_tilt_sens') || '3'),
+  invertSteering:    lsGet('kardpad_invert_steering') === 'true',
   lastTiltRaw:       null,
 
   tiltLastHapticSide: null,
@@ -400,6 +402,9 @@ function bindController() {
   document.getElementById('tiltCenterBtn')?.addEventListener('click', calibrateTilt);
   document.getElementById('fullscreenBtn')?.addEventListener('click', toggleFullscreen);
   document.getElementById('settingsGearBtn')?.addEventListener('click', openSettings);
+  document.getElementById('controller')?.addEventListener('pointerdown', () => {
+    if (isControllerVisible()) lockLandscape();
+  }, { passive: true });
 
   bindButtonPad();
 
@@ -407,11 +412,16 @@ function bindController() {
   window.addEventListener('pagehide',     () => disconnect('pagehide'));
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) releaseAllButtons();
+    else if (isControllerVisible()) lockLandscape();
   });
   window.addEventListener('blur', releaseAllButtons);
+  window.addEventListener('focus', () => {
+    if (isControllerVisible()) lockLandscape();
+  });
   window.addEventListener('devicemotion', handleDeviceMotion);
 
   const onOrientationChange = () => {
+    if (isControllerVisible()) setTimeout(() => lockLandscape(), 60);
     setTimeout(() => {
       if (state.tiltEnabled) {
         state.tiltNeutral  = null;
@@ -430,6 +440,7 @@ function bindController() {
 function bindButtonPad() {
   document.querySelectorAll('[data-btn]').forEach((btn) => {
     const name = btn.dataset.btn; if (!name) return;
+    if (DPAD_BUTTONS.has(name)) return;
     const mode = btn.dataset.btnMode || 'hold';
     const pulseMs = Number(btn.dataset.btnPulse || '90');
 
@@ -487,8 +498,8 @@ function bindDpad() {
   const wrap = document.querySelector('#dpad-cluster .dpad-wrap');
   if (!wrap) return;
 
-  const DPAD_BTNS = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
   let activeDpad = null;
+  let activePointerId = null;
 
   const dpadPress = (name) => {
     if (activeDpad === name) return;
@@ -515,28 +526,41 @@ function bindDpad() {
     const els = document.elementsFromPoint(x, y);
     for (const el of els) {
       const n = el.dataset?.btn;
-      if (n && DPAD_BTNS.includes(n)) return n;
+      if (n && DPAD_BUTTONS.has(n)) return n;
     }
     return null;
   };
 
-  wrap.addEventListener('pointerdown', (e) => {
+  const finishPointer = (e) => {
+    if (e.pointerId !== activePointerId) return;
     e.preventDefault();
-    wrap.setPointerCapture(e.pointerId);
+    if (wrap.hasPointerCapture(e.pointerId)) {
+      try { wrap.releasePointerCapture(e.pointerId); } catch {}
+    }
+    dpadRelease(activeDpad);
+    activePointerId = null;
+  };
+
+  wrap.addEventListener('pointerdown', (e) => {
+    if (activePointerId !== null) return;
+    e.preventDefault();
+    activePointerId = e.pointerId;
+    try { wrap.setPointerCapture(e.pointerId); } catch {}
     const name = getBtnUnder(e.clientX, e.clientY);
     if (name) dpadPress(name);
   }, { passive: false });
 
   wrap.addEventListener('pointermove', (e) => {
-    if (!wrap.hasPointerCapture(e.pointerId)) return;
+    if (e.pointerId !== activePointerId || !wrap.hasPointerCapture(e.pointerId)) return;
     e.preventDefault();
     const name = getBtnUnder(e.clientX, e.clientY);
     if (name) dpadPress(name);
     else if (activeDpad) dpadRelease(activeDpad);
   }, { passive: false });
 
-  wrap.addEventListener('pointerup',     (e) => { e.preventDefault(); dpadRelease(activeDpad); }, { passive: false });
-  wrap.addEventListener('pointercancel', (e) => { e.preventDefault(); dpadRelease(activeDpad); }, { passive: false });
+  wrap.addEventListener('pointerup', finishPointer, { passive: false });
+  wrap.addEventListener('pointercancel', finishPointer, { passive: false });
+  wrap.addEventListener('lostpointercapture', finishPointer, { passive: false });
 }
 
 function releaseAllButtons() {
@@ -732,10 +756,11 @@ function handleDeviceMotion(ev) {
 
     const sens     = TILT_SENSE_MAP[state.tiltSensLevel] || TILT_SENSE_MAP[3];
     const smoothed = Math.abs(state.tiltSmoothed) > sens.deadzone ? state.tiltSmoothed : 0;
+    const steering = state.invertSteering ? -smoothed : smoothed;
 
-    updateTiltIndicator(smoothed);
-    triggerTiltHaptic(smoothed, sens.threshold);
-    sendMotionPacket(acc, rot, smoothed, angle);
+    updateTiltIndicator(steering);
+    triggerTiltHaptic(steering, sens.threshold);
+    sendMotionPacket(acc, rot, steering, angle);
   } else {
     updateTiltIndicator(0);
   }
@@ -842,6 +867,18 @@ function initSettingsPanel() {
       state.tiltSensLevel = Number(slider.value);
       lsSet('kardpad_tilt_sens', String(state.tiltSensLevel));
       updateTiltSensLabel();
+    });
+  }
+
+  const invertToggle = document.getElementById('invertSteeringToggle');
+  if (invertToggle) {
+    invertToggle.setAttribute('aria-checked', state.invertSteering ? 'true' : 'false');
+    invertToggle.addEventListener('click', () => {
+      state.invertSteering = !state.invertSteering;
+      lsSet('kardpad_invert_steering', String(state.invertSteering));
+      invertToggle.setAttribute('aria-checked', state.invertSteering ? 'true' : 'false');
+      updateTiltIndicator(state.tiltEnabled ? (state.invertSteering ? -state.tiltSmoothed : state.tiltSmoothed) : 0);
+      HapticEngine.trigger(18);
     });
   }
 
@@ -1061,6 +1098,7 @@ function showSetup() {
   document.getElementById('controller').style.display='none';
   document.getElementById('setup').style.display='flex';
   releaseWakeLock();
+  unlockOrientation();
 }
 function setStatus(t)     { const el=document.getElementById('statusText'); if(el) el.textContent=t; }
 function setSetupMessage(t) { const el=document.getElementById('setupCopy'); if(el) el.textContent=t; }
@@ -1072,6 +1110,9 @@ async function toggleFullscreen() {
 }
 
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function isControllerVisible() {
+  return document.getElementById('controller')?.style.display !== 'none';
+}
 function lsGet(k)    { try { return localStorage.getItem(k); }    catch { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); }        catch {} }
 
@@ -1079,6 +1120,7 @@ function lsSet(k, v) { try { localStorage.setItem(k, v); }        catch {} }
    MÓDULO: WAKE LOCK (evita que la pantalla se apague)
    ═══════════════════════════════════════════════════════════════════════ */
 let _wakeLock = null;
+let _landscapeRelockTimer = null;
 
 async function acquireWakeLock() {
   if (!('wakeLock' in navigator)) return;
@@ -1100,14 +1142,49 @@ document.addEventListener('visibilitychange', () => {
 /* ═══════════════════════════════════════════════════════════════════════
    MÓDULO: ORIENTATION LOCK (forzar landscape)
    ═══════════════════════════════════════════════════════════════════════ */
-async function lockLandscape() {
+async function lockLandscape(retry = false) {
+  if (_landscapeRelockTimer) {
+    clearTimeout(_landscapeRelockTimer);
+    _landscapeRelockTimer = null;
+  }
+  const plugin = window.Capacitor?.Plugins?.ScreenOrientation;
+  if (plugin?.lock) {
+    try {
+      await plugin.lock({ orientation: 'landscape' });
+      return;
+    } catch (_) {}
+  }
   try {
     if (screen.orientation && screen.orientation.lock) {
       await screen.orientation.lock('landscape');
+      return;
     }
   } catch (_) {
     // iOS Safari no soporta lock() fuera de fullscreen — silenciar el error
   }
+  if (!retry) {
+    _landscapeRelockTimer = setTimeout(() => {
+      _landscapeRelockTimer = null;
+      if (isControllerVisible()) lockLandscape(true);
+    }, 800);
+  }
+}
+
+async function unlockOrientation() {
+  if (_landscapeRelockTimer) {
+    clearTimeout(_landscapeRelockTimer);
+    _landscapeRelockTimer = null;
+  }
+  const plugin = window.Capacitor?.Plugins?.ScreenOrientation;
+  if (plugin?.unlock) {
+    try {
+      await plugin.unlock();
+      return;
+    } catch (_) {}
+  }
+  try {
+    if (screen.orientation?.unlock) screen.orientation.unlock();
+  } catch (_) {}
 }
 
 /* ─── Alias de compatibilidad ────────────────────────────────────── */

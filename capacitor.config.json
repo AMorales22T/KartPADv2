@@ -15,7 +15,7 @@
   },
   "plugins": {
     "ScreenOrientation": {
-      "allowRotate": true
+      "allowRotate": false
     }
   }
 }

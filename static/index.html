@@ -18,6 +18,7 @@
   <!-- Android PWA -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#06060e">
+  <meta name="screen-orientation" content="landscape">
 
   <title>KardPad</title>
 
@@ -333,6 +334,19 @@
                    aria-label="Sensibilidad del volante">
             <span class="slider-label">Preciso</span>
           </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Invertir volante</div>
+            <div class="settings-row-hint">Invierte izquierda/derecha para que el giro se sienta natural</div>
+          </div>
+          <button class="toggle-btn" id="invertSteeringToggle"
+                  type="button" role="switch" aria-checked="false">
+            <span class="toggle-knob"></span>
+          </button>
         </div>
       </div>
 

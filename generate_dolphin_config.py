@@ -55,10 +55,10 @@ Buttons/- = Q
 Buttons/+ = E
 Buttons/Home = RETURN
 ; ── D-Pad ────────────────────────────────────────────────────────
-D-Pad/Up = UP
-D-Pad/Down = DOWN
-D-Pad/Left = LEFT
-D-Pad/Right = RIGHT
+D-Pad/Up = `UP`
+D-Pad/Down = `DOWN`
+D-Pad/Left = `LEFT`
+D-Pad/Right = `RIGHT`
 ; ── IR (no usado en MKWii sideways) ──────────────────────────────
 IR/Up = `Cursor Y-`
 IR/Down = `Cursor Y+`
@@ -178,24 +178,24 @@ def main() -> None:
 
     print()
     print("Cambios aplicados:")
-    print("  ✓ Extension Nunchuk eliminada (Extension = None)")
-    print("  ✓ Sideways Wiimote = True")
-    print("  ✓ IMU Accel/Gyro → DSU")
-    print("  ✓ Button A = X, Button B = Y (sin duplicados)")
-    print("  ✓ Button 2 = R2 (acelerar), Button 1 = L2")
-    print("  ✓ DSU Client limpio (una sola entrada)")
+    print("  [OK] Extension Nunchuk eliminada (Extension = None)")
+    print("  [OK] Sideways Wiimote = True")
+    print("  [OK] IMU Accel/Gyro -> DSU")
+    print("  [OK] Button A = X, Button B = Y (sin duplicados)")
+    print("  [OK] Button 2 = R2 (acelerar), Button 1 = L2")
+    print("  [OK] DSU Client limpio (una sola entrada)")
     print()
-    print("⚠  IMPORTANTE: Cierra y vuelve a abrir Dolphin para")
+    print("IMPORTANTE: Cierra y vuelve a abrir Dolphin para")
     print("   que lea la nueva configuración.")
     print()
-    print("─── Mapeo final KardPad → Wiimote → MKWii ─────────")
-    print("  ACCELERATE (R2) → Wiimote 2 → Acelerar")
-    print("  BRAKE      (L2) → Wiimote 1 → Mirar atrás / frenar")
-    print("  ITEM       (X)  → Wiimote A → Usar ítem  ✓")
-    print("  DRIFT      (R1) → Wiimote B → Freno / Derrapar ✓")
-    print("  TRICK      (Y)  → Shake     → Truco en el aire")
-    print("  D-pad           → D-Pad     → Navegar menús")
-    print("  Volante    (IMU)→ Tilt      → Girar izq/der")
+    print("--- Mapeo final KardPad -> Wiimote -> MKWii ---------")
+    print("  ACCELERATE (R2) -> Wiimote 2 -> Acelerar")
+    print("  BRAKE      (L2) -> Wiimote 1 -> Mirar atras / frenar")
+    print("  ITEM       (X)  -> Wiimote A -> Usar item")
+    print("  DRIFT      (R1) -> Wiimote B -> Freno / Derrapar")
+    print("  TRICK      (Y)  -> Shake     -> Truco en el aire")
+    print("  D-pad           -> D-Pad     -> Navegar menus")
+    print("  Volante    (IMU)-> Tilt      -> Girar izq/der")
     print("=" * 60)
 
 
