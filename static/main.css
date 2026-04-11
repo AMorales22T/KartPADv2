@@ -451,7 +451,7 @@ button, a, label { touch-action: manipulation; }
 
 /* ── D-pad (centro inferior) ─────────────────────────────────────── */
 #dpad-cluster {
-  position: fixed; z-index: 10;
+  position: fixed; z-index: 20;
   left: 50%;
   bottom: calc(var(--safe-bottom) + 12px);
   transform: translateX(-50%);
@@ -459,6 +459,7 @@ button, a, label { touch-action: manipulation; }
   flex-direction: column;
   gap: 8px;
   align-items: center;
+  pointer-events: auto;
 }
 
 /* ── Puntero de menú (legado, oculto) ───────────────────────────── */

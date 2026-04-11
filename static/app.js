@@ -469,6 +469,74 @@ function bindButtonPad() {
     // y también permite navegar el menú sin disparar botones de juego.
     btn.addEventListener('lostpointercapture', release, { passive: false });
   });
+
+  bindDpad();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   D-PAD: lógica de deslizamiento entre direcciones
+   ─────────────────────────────────────────────────────────────────────
+   El problema con el d-pad estándar es que setPointerCapture hace que
+   el primer botón que tocas "capture" todos los eventos, así que si
+   deslizas el dedo a otra dirección, el botón original sigue recibiendo
+   los eventos y el nuevo nunca se activa.
+   Solución: escuchar pointermove en el wrap, calcular qué botón está
+   bajo el dedo y activarlo/desactivarlo manualmente.
+   ═══════════════════════════════════════════════════════════════════════ */
+function bindDpad() {
+  const wrap = document.querySelector('#dpad-cluster .dpad-wrap');
+  if (!wrap) return;
+
+  const DPAD_BTNS = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
+  let activeDpad = null;
+
+  const dpadPress = (name) => {
+    if (activeDpad === name) return;
+    if (activeDpad) dpadRelease(activeDpad);
+    activeDpad = name;
+    const el = wrap.querySelector(`[data-btn="${name}"]`);
+    if (el) { el.classList.add('pressed'); el.dataset.pressed = '1'; }
+    state.activeButtons.add(name);
+    safeSend({ type: 'button', name, action: 'press' });
+    HapticEngine.trigger(12);
+  };
+
+  const dpadRelease = (name) => {
+    if (!name) return;
+    const el = wrap.querySelector(`[data-btn="${name}"]`);
+    if (el) { el.classList.remove('pressed'); el.dataset.pressed = '0'; }
+    state.activeButtons.delete(name);
+    safeSend({ type: 'button', name, action: 'release' });
+    if (activeDpad === name) activeDpad = null;
+  };
+
+  const getBtnUnder = (x, y) => {
+    // Usamos elementsFromPoint para encontrar qué botón del dpad está bajo el dedo
+    const els = document.elementsFromPoint(x, y);
+    for (const el of els) {
+      const n = el.dataset?.btn;
+      if (n && DPAD_BTNS.includes(n)) return n;
+    }
+    return null;
+  };
+
+  wrap.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    wrap.setPointerCapture(e.pointerId);
+    const name = getBtnUnder(e.clientX, e.clientY);
+    if (name) dpadPress(name);
+  }, { passive: false });
+
+  wrap.addEventListener('pointermove', (e) => {
+    if (!wrap.hasPointerCapture(e.pointerId)) return;
+    e.preventDefault();
+    const name = getBtnUnder(e.clientX, e.clientY);
+    if (name) dpadPress(name);
+    else if (activeDpad) dpadRelease(activeDpad);
+  }, { passive: false });
+
+  wrap.addEventListener('pointerup',     (e) => { e.preventDefault(); dpadRelease(activeDpad); }, { passive: false });
+  wrap.addEventListener('pointercancel', (e) => { e.preventDefault(); dpadRelease(activeDpad); }, { passive: false });
 }
 
 function releaseAllButtons() {
@@ -787,6 +855,22 @@ function initSettingsPanel() {
     closeSettings(); disconnect('manual'); disableTilt(); showSetup(); setStatus('Elige jugador.');
   });
 
+  document.getElementById('changeServerBtn')?.addEventListener('click', () => {
+    closeSettings();
+    disconnect('manual');
+    disableTilt();
+    lsSet('kardpad_ip', '');   // borra la IP guardada
+    state.wsUrl = null;
+    if (isCapacitor()) {
+      // Elimina la pantalla de IP existente si la hay y la vuelve a inyectar
+      document.getElementById('ipScreen')?.remove();
+      injectIpScreen();
+    } else {
+      showSetup();
+      setSetupMessage('Escribe la nueva IP del servidor en la URL (?wsHost=X.X.X.X) y recarga.');
+    }
+  });
+
   syncSettingsPlayerBtns(state.selectedPlayer);
 }
 
@@ -967,8 +1051,17 @@ function updateTiltUi() {
 
 function setTiltCopy(t) { const el=document.getElementById('tiltCopy'); if(el) el.textContent=t; }
 function updateServerAddress() { const el=document.getElementById('serverAddress'); if(el) el.textContent=state.wsUrl||'--'; }
-function showController() { document.getElementById('setup').style.display='none'; document.getElementById('controller').style.display='block'; }
-function showSetup()      { document.getElementById('controller').style.display='none'; document.getElementById('setup').style.display='flex'; }
+function showController() {
+  document.getElementById('setup').style.display='none';
+  document.getElementById('controller').style.display='block';
+  acquireWakeLock();
+  lockLandscape();
+}
+function showSetup() {
+  document.getElementById('controller').style.display='none';
+  document.getElementById('setup').style.display='flex';
+  releaseWakeLock();
+}
 function setStatus(t)     { const el=document.getElementById('statusText'); if(el) el.textContent=t; }
 function setSetupMessage(t) { const el=document.getElementById('setupCopy'); if(el) el.textContent=t; }
 
@@ -981,6 +1074,41 @@ async function toggleFullscreen() {
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 function lsGet(k)    { try { return localStorage.getItem(k); }    catch { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); }        catch {} }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MÓDULO: WAKE LOCK (evita que la pantalla se apague)
+   ═══════════════════════════════════════════════════════════════════════ */
+let _wakeLock = null;
+
+async function acquireWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    _wakeLock = await navigator.wakeLock.request('screen');
+    _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+  } catch (_) {}
+}
+
+function releaseWakeLock() {
+  if (_wakeLock) { try { _wakeLock.release(); } catch {} _wakeLock = null; }
+}
+
+// Re-adquirir cuando la app vuelve al frente (iOS libera el lock en background)
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && _wakeLock === null) acquireWakeLock();
+});
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MÓDULO: ORIENTATION LOCK (forzar landscape)
+   ═══════════════════════════════════════════════════════════════════════ */
+async function lockLandscape() {
+  try {
+    if (screen.orientation && screen.orientation.lock) {
+      await screen.orientation.lock('landscape');
+    }
+  } catch (_) {
+    // iOS Safari no soporta lock() fuera de fullscreen — silenciar el error
+  }
+}
 
 /* ─── Alias de compatibilidad ────────────────────────────────────── */
 function triggerHaptic(ms = 22) { HapticEngine.trigger(ms); }
