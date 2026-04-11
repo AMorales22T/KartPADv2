@@ -20,7 +20,7 @@ Wiimote horizontal mapping in MKWii:
   Button 1 = Look behind →  L2  ✓
   Button A = Use item     →  X
   Button B = Brake/drift  →  Y
-  D-pad    = Menu nav     →  D-pad
+  D-pad    = Menu nav     →  D-pad + IR cursor
   +        = Pause        →  OPTIONS (keyboard E kept as fallback)
   Tilt     = Steering     →  IMU Accel from DSU
 """
@@ -59,11 +59,12 @@ D-Pad/Up = `UP`
 D-Pad/Down = `DOWN`
 D-Pad/Left = `LEFT`
 D-Pad/Right = `RIGHT`
-; ── IR (no usado en MKWii sideways) ──────────────────────────────
-IR/Up = `Cursor Y-`
-IR/Down = `Cursor Y+`
-IR/Left = `Cursor X-`
-IR/Right = `Cursor X+`
+; ── IR: el menú principal de MKWii usa puntero, no solo D-pad ────
+;    Reutilizamos el D-pad para mover el cursor amarillo del menú.
+IR/Up = `UP`
+IR/Down = `DOWN`
+IR/Left = `LEFT`
+IR/Right = `RIGHT`
 ; ── Shake (truco/trick — Y activa sacudida) ───────────────────────
 Shake/X = `Y`
 Shake/Y = `Y`
@@ -194,7 +195,8 @@ def main() -> None:
     print("  ITEM       (X)  -> Wiimote A -> Usar item")
     print("  DRIFT      (R1) -> Wiimote B -> Freno / Derrapar")
     print("  TRICK      (Y)  -> Shake     -> Truco en el aire")
-    print("  D-pad           -> D-Pad     -> Navegar menus")
+    print("  D-pad           -> D-Pad/IR  -> Mover menus / cursor")
+    print("  ITEM       (X)  -> Wiimote A -> Confirmar en menus")
     print("  Volante    (IMU)-> Tilt      -> Girar izq/der")
     print("=" * 60)
 
