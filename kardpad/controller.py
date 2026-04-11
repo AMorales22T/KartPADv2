@@ -11,6 +11,7 @@ from .config import PLAYER_COUNT
 BUTTON_ALIASES = {
     "ACCELERATE": "R2",
     "BRAKE": "L2",
+
     "DRIFT": "R1",
     "ITEM": "X",
     "START": "OPTIONS",
