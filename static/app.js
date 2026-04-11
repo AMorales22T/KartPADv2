@@ -27,8 +27,12 @@ const DPAD_BUTTONS = new Set(['UP', 'DOWN', 'LEFT', 'RIGHT']);
 const TILT_SMOOTH_ALPHA = 0.3;
 
 /* ─── Detección de shake ──────────────────────────────────────────── */
-const SHAKE_THRESHOLD   = 18;   // m/s²
-const SHAKE_DEBOUNCE_MS = 250;
+const SHAKE_THRESHOLD   = 14;   // m/s² — bajado para detectar mejor el gesto
+const SHAKE_DEBOUNCE_MS = 300;  // ms mínimo entre shakes
+
+// Magnitud del spike de aceleración enviado al Wiimote virtual (en g)
+// Dolphin Wiimote shake umbral ≈ 2.5 g — mandamos 3.5 g para margen holgado
+const SHAKE_SPIKE_G = 3.5;
 
 /* ═══════════════════════════════════════════════════════════════════════
    MÓDULO: HAPTIC ENGINE
@@ -614,9 +618,10 @@ function releaseAllButtons() {
 function triggerButtonHaptic(name) {
   if      (name === 'ACCELERATE') HapticEngine.trigger(18);
   else if (name === 'BRAKE')      HapticEngine.trigger(28);
-  else if (name === 'DRIFT' || name === 'ITEM') HapticEngine.trigger(15);
+  else if (name === 'DRIFT')      HapticEngine.trigger(22);
+  else if (name === 'ITEM')       HapticEngine.trigger(30);  // ítem: fuerte y claro
   else if (name === 'LOOKBACK')   HapticEngine.trigger(14);
-  else if (name === 'TRICK')      HapticEngine.trigger(40);
+  else if (name === 'TRICK')      HapticEngine.trigger(50);  // truco: el más fuerte
   else                            HapticEngine.trigger(12);
 }
 
@@ -626,6 +631,9 @@ function pulseButton(name, durationMs = 90, element = null) {
 
   state.activeButtons.delete(name);
   safeSend({ type: 'button', name, action: 'press' });
+
+  // Si es TRICK, lanzar también el spike de aceleración para el IMU Wiimote
+  if (name === 'TRICK') sendShakeSpike();
 
   if (element) {
     element.dataset.pressed = '1';
@@ -642,6 +650,41 @@ function pulseButton(name, durationMs = 90, element = null) {
   }, durationMs);
 
   state.trickPulseTimers.set(name, timer);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SHAKE SPIKE — simula la sacudida del Wiimote en el IMU virtual
+   ───────────────────────────────────────────────────────────────────────
+   Dolphin detecta el shake del Wiimote midiendo un cambio brusco en la
+   aceleración. Enviamos 3 frames:
+     Frame 0 (t=0ms):   spike positivo en Y  (+SHAKE_SPIKE_G, 0, 1)
+     Frame 1 (t=35ms):  spike negativo en Y  (-SHAKE_SPIKE_G, 0, 1)
+     Frame 2 (t=70ms):  vuelta al neutro       (0, 0, 1)
+   El eje Y del DSU corresponde al eje de sacudida del Wiimote horizontal.
+   ═══════════════════════════════════════════════════════════════════════ */
+function sendShakeSpike() {
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
+
+  const G = SHAKE_SPIKE_G;
+  const t = Date.now();
+
+  // Frame 0 — spike positivo
+  safeSend({ type: 'motion', accel: { x: 0, y: G, z: 1.0 }, gyro: { pitch: 0, yaw: 0, roll: 0 }, timestamp: t });
+
+  // Frame 1 — spike negativo (cambio brusco necesario para que Dolphin lo detecte)
+  setTimeout(() =>
+    safeSend({ type: 'motion', accel: { x: 0, y: -G, z: 1.0 }, gyro: { pitch: 0, yaw: 0, roll: 0 }, timestamp: Date.now() }),
+  35);
+
+  // Frame 2 — retorno al neutro (o al valor real del volante si está activo)
+  setTimeout(() => {
+    if (state.tiltEnabled) {
+      // El volante ya se encargará del siguiente paquete de motion real
+      sendNeutralMotion();
+    } else {
+      safeSend({ type: 'motion', accel: { x: 0, y: 0, z: 1.0 }, gyro: { pitch: 0, yaw: 0, roll: 0 }, timestamp: Date.now() });
+    }
+  }, 75);
 }
 
 function sendNeutralMotion() {
@@ -815,8 +858,11 @@ function handleDeviceMotion(ev) {
     const now = Date.now();
     if (now - state.lastShakeTs > SHAKE_DEBOUNCE_MS) {
       state.lastShakeTs = now;
+      // 1. Pulsa botón TRICK (Shake/Y en WiimoteNew.ini)
       pulseButton('TRICK', 90, document.getElementById('shakeBtn'));
+      // 2. Flash visual + háptico extra
       flashShakeButton();
+      // Nota: sendShakeSpike() se llama DENTRO de pulseButton cuando name === 'TRICK'
     }
   }
 }
