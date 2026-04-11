@@ -522,30 +522,23 @@ function sendNeutralMotion() {
 }
 
 function transformMotionToDsu(acc, rot, angle, steering) {
-  const gravityX = (acc.x ?? 0) / 9.80665;
-  const gravityY = (acc.y ?? 0) / 9.80665;
-  const gravityZ = (acc.z ?? 0) / 9.80665;
-  const gyroPitch = Number(rot.beta || 0);
-  const gyroRoll = Number(rot.gamma || 0);
-  const gyroYaw = Number(rot.alpha || 0);
-
-  if (angle === 90 || angle === -270) {
-    return {
-      accel: { x: gravityY, y: -gravityX, z: gravityZ },
-      gyro:  { pitch: gyroRoll, yaw: gyroYaw, roll: -gyroPitch + steering * 35 },
-    };
-  }
-
-  if (angle === 270 || angle === -90) {
-    return {
-      accel: { x: -gravityY, y: gravityX, z: gravityZ },
-      gyro:  { pitch: -gyroRoll, yaw: gyroYaw, roll: gyroPitch + steering * 35 },
-    };
-  }
+  // ── Synthetic accelerometer ───────────────────────────────────
+  // The phone is held vertically (steering wheel) but DSU expects
+  // data as if from a flat DualShock controller:
+  //   At rest:       (0, 0, +1)   — gravity through Z (face up)
+  //   Tilt right:    (+sin, 0, +cos)
+  //   Tilt left:     (-sin, 0, +cos)
+  //
+  // We use the already-calculated `steering` value (-1..+1) to
+  // generate a clean gravity vector.  This avoids all coordinate-
+  // system mismatches between phone orientation and DSU convention.
+  const tiltRad = steering * 0.7854;          // ±45° max (π/4)
+  const accelX  = Math.sin(tiltRad);          // lateral tilt
+  const accelZ  = Math.cos(tiltRad);          // vertical component
 
   return {
-    accel: { x: gravityX, y: gravityY, z: gravityZ },
-    gyro:  { pitch: gyroPitch, yaw: gyroYaw, roll: gyroRoll + steering * 35 },
+    accel: { x: accelX, y: 0.0, z: accelZ },
+    gyro:  { pitch: 0.0, yaw: 0.0, roll: steering * 50.0 },
   };
 }
 

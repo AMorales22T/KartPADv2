@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""
+Generate correct Dolphin WiimoteNew.ini and DSUClient.ini for KardPad.
+
+This script:
+  1. Backs up existing Dolphin config files.
+  2. Writes a clean WiimoteNew.ini with:
+     - Extension = None (no Nunchuk!)
+     - Sideways Wiimote = True
+     - IMU Accel/Gyro mapped to DSU
+     - Correct button mapping (no duplicates)
+  3. Writes a clean DSUClient.ini with a single entry.
+
+KardPad DSU button mapping reference (controller.py):
+  ACCELERATE → R2    BRAKE → L2    DRIFT → R1    ITEM → X
+  START → OPTIONS    TRICK → Y
+
+Wiimote horizontal mapping in MKWii:
+  Button 2 = Accelerate  →  R2  ✓
+  Button 1 = Look behind →  L2  ✓
+  Button A = Use item     →  X
+  Button B = Brake/drift  →  Y
+  D-pad    = Menu nav     →  D-pad
+  +        = Pause        →  OPTIONS (keyboard E kept as fallback)
+  Tilt     = Steering     →  IMU Accel from DSU
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import sys
+from datetime import datetime
+from pathlib import Path
+
+DOLPHIN_CONFIG_DIR = Path(os.environ["APPDATA"]) / "Dolphin Emulator" / "Config"
+
+WIIMOTE_INI = DOLPHIN_CONFIG_DIR / "WiimoteNew.ini"
+DSU_INI = DOLPHIN_CONFIG_DIR / "DSUClient.ini"
+
+# ─── WiimoteNew.ini ────────────────────────────────────────────────────
+# Wiimote 1: DSU (KardPad) — all 4 players could use DSU, but only P1
+# is configured for DSU here; P2-P4 use keyboard.
+WIIMOTE_CONTENT = """\
+[Wiimote1]
+Source = 1
+Device = DSUClient/1/
+; ── Botones del Wiimote (horizontal) ─────────────────────────────
+; En horizontal: 2=arriba-der, 1=abajo-der, A=lateral, B=gatillo
+Buttons/A = `X`
+Buttons/B = `Y`
+Buttons/1 = `L2`
+Buttons/2 = `R2`
+Buttons/- = Q
+Buttons/+ = E
+Buttons/Home = RETURN
+; ── D-Pad ────────────────────────────────────────────────────────
+D-Pad/Up = UP
+D-Pad/Down = DOWN
+D-Pad/Left = LEFT
+D-Pad/Right = RIGHT
+; ── IR (no usado en MKWii sideways, defaults) ────────────────────
+IR/Up = `Cursor Y-`
+IR/Down = `Cursor Y+`
+IR/Left = `Cursor X-`
+IR/Right = `Cursor X+`
+; ── Shake (truco/trick) ──────────────────────────────────────────
+Shake/X = `Click 2`
+Shake/Y = `Click 2`
+Shake/Z = `Click 2`
+; ── IMU — Acelerómetro DSU → Acelerómetro Wiimote ────────────────
+; Esto es lo que controla el giro en Mario Kart Wii
+IMUAccelerometer/Up = `Accel Up`
+IMUAccelerometer/Down = `Accel Down`
+IMUAccelerometer/Left = `Accel Left`
+IMUAccelerometer/Right = `Accel Right`
+IMUAccelerometer/Forward = `Accel Forward`
+IMUAccelerometer/Backward = `Accel Backward`
+; ── IMU — Giroscopio DSU → Giroscopio Wiimote ────────────────────
+IMUGyroscope/Pitch Up = `Gyro Pitch Up`
+IMUGyroscope/Pitch Down = `Gyro Pitch Down`
+IMUGyroscope/Roll Left = `Gyro Roll Left`
+IMUGyroscope/Roll Right = `Gyro Roll Right`
+IMUGyroscope/Yaw Left = `Gyro Yaw Left`
+IMUGyroscope/Yaw Right = `Gyro Yaw Right`
+; ── Opciones ─────────────────────────────────────────────────────
+Options/Sideways Wiimote = True
+Extension/Attach MotionPlus = False
+; ⚠ SIN bindings de Nunchuk = Extension queda como None
+;   Esto es CRÍTICO para que MKWii use tilt steering
+
+[Wiimote2]
+Source = 1
+Device = DInput/0/Keyboard Mouse
+Buttons/A = E
+Buttons/B = R
+Buttons/1 = W
+Buttons/2 = Q
+D-Pad/Up = H
+D-Pad/Down = F
+D-Pad/Left = T
+D-Pad/Right = G
+Buttons/+ = Y
+Options/Sideways Wiimote = True
+
+[Wiimote3]
+Source = 1
+Device = DInput/0/Keyboard Mouse
+Buttons/A = I
+Buttons/B = L
+Buttons/1 = M
+Buttons/2 = COMMA
+D-Pad/Up = `F8`
+D-Pad/Down = `F5`
+D-Pad/Left = `F4`
+D-Pad/Right = `F6`
+Buttons/+ = `F7`
+Options/Sideways Wiimote = True
+
+[Wiimote4]
+Device = DInput/0/Keyboard Mouse
+Source = 1
+Buttons/A = `1`
+Buttons/B = `2`
+Buttons/1 = `3`
+Buttons/2 = `4`
+D-Pad/Up = PRIOR
+D-Pad/Down = NEXT
+D-Pad/Left = HOME
+D-Pad/Right = END
+Options/Sideways Wiimote = True
+
+[BalanceBoard]
+Device = DInput/0/Keyboard Mouse
+Source = 0
+"""
+
+# ─── DSUClient.ini ─────────────────────────────────────────────────────
+DSU_CONTENT = """\
+[Server]
+Enabled = True
+Entries = :127.0.0.1:26760;
+"""
+
+
+def backup(path: Path) -> Path | None:
+    if not path.exists():
+        return None
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = path.with_suffix(f".{ts}.bak")
+    shutil.copy2(path, backup_path)
+    return backup_path
+
+
+def main() -> None:
+    if not DOLPHIN_CONFIG_DIR.exists():
+        print(f"[ERROR] No se encontró {DOLPHIN_CONFIG_DIR}")
+        print("        ¿Está Dolphin instalado?")
+        sys.exit(1)
+
+    print("=" * 60)
+    print("  KardPad — Generador de config Dolphin")
+    print("=" * 60)
+
+    # Backup
+    bak1 = backup(WIIMOTE_INI)
+    bak2 = backup(DSU_INI)
+    if bak1:
+        print(f"[BACKUP] {bak1.name}")
+    if bak2:
+        print(f"[BACKUP] {bak2.name}")
+
+    # Write
+    WIIMOTE_INI.write_text(WIIMOTE_CONTENT, encoding="utf-8")
+    print(f"[OK] Escrito: {WIIMOTE_INI}")
+
+    DSU_INI.write_text(DSU_CONTENT, encoding="utf-8")
+    print(f"[OK] Escrito: {DSU_INI}")
+
+    print()
+    print("Cambios aplicados:")
+    print("  ✓ Extension Nunchuk eliminada (Extension = None)")
+    print("  ✓ Sideways Wiimote = True")
+    print("  ✓ IMU Accel/Gyro → DSU")
+    print("  ✓ Button A = X, Button B = Y (sin duplicados)")
+    print("  ✓ Button 2 = R2 (acelerar), Button 1 = L2")
+    print("  ✓ DSU Client limpio (una sola entrada)")
+    print()
+    print("⚠  IMPORTANTE: Cierra y vuelve a abrir Dolphin para")
+    print("   que lea la nueva configuración.")
+    print()
+    print("─── Mapeo final KardPad → Wiimote → MKWii ─────────")
+    print("  ACCELERATE (R2) → Wiimote 2 → Acelerar")
+    print("  BRAKE      (L2) → Wiimote 1 → Mirar atrás")
+    print("  ITEM       (X)  → Wiimote A → Usar ítem")
+    print("  DRIFT      (R1) → (no mapeado directamente)")
+    print("  TRICK      (Y)  → Wiimote B → Freno / Derrapar")
+    print("  Volante    (IMU)→ Tilt      → Girar izq/der")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()

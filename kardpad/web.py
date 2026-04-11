@@ -5,6 +5,7 @@ import http.server
 import json
 import socket
 import threading
+import time
 import uuid
 
 import websockets
@@ -12,10 +13,20 @@ import websockets
 from .config import HTTP_PORT, STATIC_DIR, WS_PORT
 from .controller import ControllerHub
 
+# ── Debug: motion logging ────────────────────────────────────────
+_motion_debug_ts: float = 0.0
+_motion_debug_count: int = 0
+
 
 class StaticHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -116,18 +127,32 @@ class MobileGateway:
             gyro = payload.get("gyro") or {}
             timestamp_ms = int(payload.get("timestamp", 0) or 0)
             motion_timestamp_us = timestamp_ms * 1000 if timestamp_ms else None
+
+            ax = float(accel.get("x", 0.0))
+            ay = float(accel.get("y", 0.0))
+            az = float(accel.get("z", 1.0))
+            gp = float(gyro.get("pitch", 0.0))
+            gy = float(gyro.get("yaw", 0.0))
+            gr = float(gyro.get("roll", 0.0))
+
+            # ── Debug: print motion once/sec ──────────────────────
+            global _motion_debug_ts, _motion_debug_count
+            _motion_debug_count += 1
+            now = time.monotonic()
+            if now - _motion_debug_ts >= 1.0:
+                _motion_debug_ts = now
+                print(
+                    f"[MOTION P{player_id}] "
+                    f"accel=({ax:+.3f}, {ay:+.3f}, {az:+.3f})  "
+                    f"gyro=({gp:+.1f}, {gy:+.1f}, {gr:+.1f})  "
+                    f"({_motion_debug_count} pkt/s)"
+                )
+                _motion_debug_count = 0
+
             self._hub.update_motion(
                 player_id,
-                (
-                    float(accel.get("x", 0.0)),
-                    float(accel.get("y", 0.0)),
-                    float(accel.get("z", 1.0)),
-                ),
-                (
-                    float(gyro.get("pitch", 0.0)),
-                    float(gyro.get("yaw", 0.0)),
-                    float(gyro.get("roll", 0.0)),
-                ),
+                (ax, ay, az),
+                (gp, gy, gr),
                 motion_timestamp_us=motion_timestamp_us,
             )
 

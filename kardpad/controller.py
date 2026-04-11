@@ -9,8 +9,8 @@ from .config import PLAYER_COUNT
 
 
 BUTTON_ALIASES = {
-    "ACCELERATE": "A",
-    "BRAKE": "B",
+    "ACCELERATE": "R2",
+    "BRAKE": "L2",
     "DRIFT": "R1",
     "ITEM": "X",
     "START": "OPTIONS",
@@ -208,4 +208,3 @@ class ControllerHub:
         with self._lock:
             state = self._players.get(player_id)
             return state.snapshot() if state else None
-
