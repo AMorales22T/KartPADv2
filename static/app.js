@@ -615,6 +615,7 @@ function triggerButtonHaptic(name) {
   if      (name === 'ACCELERATE') HapticEngine.trigger(18);
   else if (name === 'BRAKE')      HapticEngine.trigger(28);
   else if (name === 'DRIFT' || name === 'ITEM') HapticEngine.trigger(15);
+  else if (name === 'LOOKBACK')   HapticEngine.trigger(14);
   else if (name === 'TRICK')      HapticEngine.trigger(40);
   else                            HapticEngine.trigger(12);
 }

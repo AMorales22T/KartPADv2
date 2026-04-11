@@ -166,12 +166,12 @@
     <!--
       Los triggers están en la parte superior porque se pulsan con los
       índices al sostener el teléfono en landscape (como un mando).
-      DRIFT = L / ITEM = R en el mapeo del servidor.
+      DRIFT = derrapar, ITEM = usar objeto/seleccionar, + = pausa.
     -->
     <div class="drag-unit" id="shoulder-row">
       <button class="trigger" data-btn="DRIFT" data-side="left"  type="button">DRIFT</button>
       <button class="start-btn kart-start"     data-btn="START"  type="button">+</button>
-      <button class="trigger" data-btn="ITEM"  data-side="right" type="button">ITEM</button>
+      <button class="trigger" data-btn="ITEM"  data-btn-mode="pulse" data-btn-pulse="90" data-side="right" type="button">ITEM</button>
     </div>
 
     <!-- ── ZONA IZQUIERDA: barra visual del volante ──────────────── -->
@@ -198,7 +198,7 @@
     <!-- ── ZONA DERECHA: A (acelerar) + B (frenar) + TRUCO ──────── -->
     <!--
       A y B son los principales — deben ser grandes y fáciles de pulsar.
-      TRUCO (shake) dispara el efecto de truco de Mario Kart.
+      ATRÁS equivale al botón A del Wii Remote. TRUCO simula agitar el mando.
     -->
     <div class="drag-unit" id="action-cluster">
       <div class="zone-label zone-label-right">ACCIÓN</div>
@@ -209,6 +209,10 @@
           <button class="pedal-btn pedal-brake"  data-btn="BRAKE"      type="button">B</button>
           <button class="pedal-btn pedal-accel"  data-btn="ACCELERATE" type="button">A</button>
         </div>
+
+        <button class="action-btn action-lookback" data-btn="LOOKBACK" type="button">
+          <span class="action-lookback-label">ATRÁS</span>
+        </button>
 
         <!-- TRUCO debajo de A+B -->
         <button class="action-btn action-shake haptic-btn" id="shakeBtn" data-btn="TRICK" data-btn-mode="pulse" data-btn-pulse="90" type="button">
@@ -231,7 +235,7 @@
         <button class="dpad-btn" data-btn="DOWN"  type="button" aria-label="Abajo"     >&#9660;</button>
         <button class="dpad-btn" data-btn="RIGHT" type="button" aria-label="Derecha"   >&#9654;</button>
       </div>
-      <div class="dpad-label">MENU / CURSOR</div>
+      <div class="dpad-label">MENU</div>
     </div>
 
     <div class="drag-unit" id="pointer-cluster" style="display:none">

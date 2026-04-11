@@ -13,7 +13,8 @@ BUTTON_ALIASES = {
     "BRAKE": "L2",
 
     "DRIFT": "R1",
-    "ITEM": "X",
+    "ITEM": "UP",
+    "LOOKBACK": "X",
     "START": "OPTIONS",
     "TRICK": "Y",
     "A": "A",

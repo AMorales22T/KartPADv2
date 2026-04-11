@@ -12,17 +12,17 @@ This script:
   3. Writes a clean DSUClient.ini with a single entry.
 
 KardPad DSU button mapping reference (controller.py):
-  ACCELERATE → R2    BRAKE → L2    DRIFT → R1    ITEM → X
-  START → OPTIONS    TRICK → Y
+  ACCELERATE → R2    BRAKE → L2    DRIFT → R1    ITEM → UP
+  LOOKBACK → X       START → OPTIONS    TRICK → Y
 
 Wiimote horizontal mapping in MKWii:
-  Button 2 = Accelerate  →  R2  ✓
-  Button 1 = Look behind →  L2  ✓
-  Button A = Use item     →  X
-  Button B = Brake/drift  →  Y
-  D-pad    = Menu nav     →  D-pad + IR cursor
-  +        = Pause        →  OPTIONS (keyboard E kept as fallback)
-  Tilt     = Steering     →  IMU Accel from DSU
+  Button 2 = Accelerate      → R2
+  Button 1 = Brake/Reverse   → L2
+  Button B = Drift/Hop       → R1
+  Button A = Look backward   → X
+  D-pad Up = Item / Select   → UP
+  +        = Pause           → OPTIONS
+  Tilt     = Steering        → IMU Accel from DSU
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ WIIMOTE_CONTENT = """\
 Source = 1
 Device = DSUClient/0/
 ; ── Botones del Wiimote (horizontal) ─────────────────────────────
-; Sideways Wiimote MKWii: 2=Acelerar, 1=Mirar atrás, A=Item, B=Freno/Drift
+; Sideways Wiimote MKWii: 2=Acelerar, 1=Freno, B=Derrape, A=Mirar atrás
 Buttons/A = `Triangle`
 Buttons/B = `R1`
 Buttons/1 = `L2`
@@ -59,12 +59,11 @@ D-Pad/Up = `Pad N`
 D-Pad/Down = `Pad S`
 D-Pad/Left = `Pad W`
 D-Pad/Right = `Pad E`
-; ── IR: el menú principal de MKWii usa puntero, no solo D-pad ────
-;    Reutilizamos el D-pad para mover el cursor amarillo del menú.
-IR/Up = `Pad N`
-IR/Down = `Pad S`
-IR/Left = `Pad W`
-IR/Right = `Pad E`
+; ── IR: puntero con el ratón del PC ──────────────────────────────
+IR/Up = `DInput/0/Keyboard Mouse:Cursor Y-`
+IR/Down = `DInput/0/Keyboard Mouse:Cursor Y+`
+IR/Left = `DInput/0/Keyboard Mouse:Cursor X-`
+IR/Right = `DInput/0/Keyboard Mouse:Cursor X+`
 ; ── Shake (truco/trick — Y activa sacudida) ───────────────────────
 Shake/X = `Square`
 Shake/Y = `Square`
@@ -88,7 +87,7 @@ Options/Sideways Wiimote = True
 Extension/Attach MotionPlus = False
 ; ⚠ SIN bindings de Nunchuk = Extension queda como None
 ;   Esto es CRÍTICO para que MKWii use tilt steering
-IRPassthrough/Enabled = False
+IRPassthrough/Enabled = True
 
 [Wiimote2]
 Source = 1
@@ -183,22 +182,22 @@ def main() -> None:
     print("  [OK] Extension Nunchuk eliminada (Extension = None)")
     print("  [OK] Sideways Wiimote = True")
     print("  [OK] IMU Accel/Gyro -> DSU")
-    print("  [OK] Button A = X, Button B = Y (sin duplicados)")
-    print("  [OK] Button 2 = R2 (acelerar), Button 1 = L2")
+    print("  [OK] Button A = Triangle (mirar atras), Button B = R1")
+    print("  [OK] Button 2 = R2 (acelerar), Button 1 = L2 (freno)")
     print("  [OK] DSU Client limpio (una sola entrada)")
     print()
     print("IMPORTANTE: Cierra y vuelve a abrir Dolphin para")
     print("   que lea la nueva configuración.")
     print()
     print("--- Mapeo final KardPad -> Wiimote -> MKWii ---------")
-    print("  ACCELERATE (R2) -> Wiimote 2 -> Acelerar")
-    print("  BRAKE      (L2) -> Wiimote 1 -> Mirar atras / frenar")
-    print("  ITEM       (X)  -> Wiimote A -> Usar item")
-    print("  DRIFT      (R1) -> Wiimote B -> Freno / Derrapar")
-    print("  TRICK      (Y)  -> Shake     -> Truco en el aire")
-    print("  D-pad           -> D-Pad/IR  -> Mover menus / cursor")
-    print("  ITEM       (X)  -> Wiimote A -> Confirmar en menus")
-    print("  Volante    (IMU)-> Tilt      -> Girar izq/der")
+    print("  ACCELERATE (R2)    -> Wiimote 2 -> Acelerar / confirmar")
+    print("  BRAKE      (L2)    -> Wiimote 1 -> Frenar / cancelar")
+    print("  DRIFT      (R1)    -> Wiimote B -> Derrapar / hop")
+    print("  LOOKBACK   (X)     -> Wiimote A -> Mirar atras")
+    print("  ITEM       (UP)    -> D-Pad Up  -> Usar item / seleccionar")
+    print("  TRICK      (Y)     -> Shake     -> Truco en el aire")
+    print("  Mouse PC           -> IR         -> Apuntar en menus")
+    print("  Volante    (IMU)   -> Tilt       -> Girar izq/der")
     print("=" * 60)
 
 

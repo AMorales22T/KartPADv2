@@ -746,6 +746,34 @@ button, a, label { touch-action: manipulation; }
     inset 0 -3px 0 rgba(0,0,0,.22);
 }
 
+.action-lookback {
+  width: min(32vw, 160px);
+  min-width: 108px;
+  height: 54px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #20263d, #111624);
+  border-color: rgba(255,255,255,.12);
+  color: rgba(225,235,255,.92);
+  box-shadow:
+    0 10px 24px rgba(0,0,0,.42),
+    inset 0 2px 0 rgba(255,255,255,.14),
+    0 0 0 0 rgba(52,152,219,0);
+}
+
+.action-lookback.pressed,
+.action-lookback:active {
+  box-shadow:
+    0 2px 8px rgba(0,0,0,.70),
+    0 0 16px rgba(52,152,219,.34),
+    inset 0 4px 14px rgba(0,0,0,.50);
+}
+
+.action-lookback-label {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 13px;
+  letter-spacing: .08em;
+}
+
 .shake-icon  { font-size: clamp(20px, 5.5vmin, 34px); line-height: 1; }
 .shake-label {
   font-size: 10px;
