@@ -15,12 +15,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+      - name: Clean vendored dependencies
+        run: rm -rf node_modules
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       - name: Init Capacitor iOS project
         run: |
-          npx cap add ios
-          npx cap sync ios
+          node ./node_modules/@capacitor/cli/bin/capacitor add ios
+          node ./node_modules/@capacitor/cli/bin/capacitor sync ios
       - name: Patch Info.plist
         run: |
           PLIST="ios/App/App/Info.plist"
@@ -87,17 +90,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
+      - name: Clean vendored dependencies
+        run: rm -rf node_modules
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       - name: Init Capacitor Android project
         run: |
-          npx cap add android
-          npx cap sync android
+          node ./node_modules/@capacitor/cli/bin/capacitor add android
+          node ./node_modules/@capacitor/cli/bin/capacitor sync android
       - name: Build APK
         run: |
           cd android
