@@ -44,31 +44,31 @@ DSU_INI = DOLPHIN_CONFIG_DIR / "DSUClient.ini"
 WIIMOTE_CONTENT = """\
 [Wiimote1]
 Source = 1
-Device = DSUClient/1/
+Device = DSUClient/0/
 ; ── Botones del Wiimote (horizontal) ─────────────────────────────
 ; Sideways Wiimote MKWii: 2=Acelerar, 1=Mirar atrás, A=Item, B=Freno/Drift
-Buttons/A = `X`
+Buttons/A = `Triangle`
 Buttons/B = `R1`
 Buttons/1 = `L2`
 Buttons/2 = `R2`
 Buttons/- = Q
-Buttons/+ = E
+Buttons/+ = `OPTIONS`
 Buttons/Home = RETURN
 ; ── D-Pad ────────────────────────────────────────────────────────
-D-Pad/Up = `UP`
-D-Pad/Down = `DOWN`
-D-Pad/Left = `LEFT`
-D-Pad/Right = `RIGHT`
+D-Pad/Up = `Pad N`
+D-Pad/Down = `Pad S`
+D-Pad/Left = `Pad W`
+D-Pad/Right = `Pad E`
 ; ── IR: el menú principal de MKWii usa puntero, no solo D-pad ────
 ;    Reutilizamos el D-pad para mover el cursor amarillo del menú.
-IR/Up = `UP`
-IR/Down = `DOWN`
-IR/Left = `LEFT`
-IR/Right = `RIGHT`
+IR/Up = `Pad N`
+IR/Down = `Pad S`
+IR/Left = `Pad W`
+IR/Right = `Pad E`
 ; ── Shake (truco/trick — Y activa sacudida) ───────────────────────
-Shake/X = `Y`
-Shake/Y = `Y`
-Shake/Z = `Y`
+Shake/X = `Square`
+Shake/Y = `Square`
+Shake/Z = `Square`
 ; ── IMU — Acelerómetro DSU → Acelerómetro Wiimote ────────────────
 IMUAccelerometer/Up = `Accel Up`
 IMUAccelerometer/Down = `Accel Down`
@@ -88,6 +88,7 @@ Options/Sideways Wiimote = True
 Extension/Attach MotionPlus = False
 ; ⚠ SIN bindings de Nunchuk = Extension queda como None
 ;   Esto es CRÍTICO para que MKWii use tilt steering
+IRPassthrough/Enabled = False
 
 [Wiimote2]
 Source = 1

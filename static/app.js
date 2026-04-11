@@ -497,6 +497,7 @@ function bindButtonPad() {
 function bindDpad() {
   const wrap = document.querySelector('#dpad-cluster .dpad-wrap');
   if (!wrap) return;
+  const buttons = Array.from(wrap.querySelectorAll('.dpad-btn'));
 
   let activeDpad = null;
   let activePointerId = null;
@@ -522,6 +523,11 @@ function bindDpad() {
   };
 
   const getBtnUnder = (x, y) => {
+    const activeEl = document.elementFromPoint(x, y);
+    const directBtn = activeEl?.closest?.('.dpad-btn');
+    const directName = directBtn?.dataset?.btn;
+    if (directName && DPAD_BUTTONS.has(directName)) return directName;
+
     // Usamos elementsFromPoint para encontrar qué botón del dpad está bajo el dedo
     const els = document.elementsFromPoint(x, y);
     for (const el of els) {
@@ -529,6 +535,13 @@ function bindDpad() {
       if (n && DPAD_BUTTONS.has(n)) return n;
     }
     return null;
+  };
+
+  const startPointer = (pointerId) => {
+    if (activePointerId !== null && activePointerId !== pointerId) return false;
+    activePointerId = pointerId;
+    try { wrap.setPointerCapture(pointerId); } catch {}
+    return true;
   };
 
   const finishPointer = (e) => {
@@ -542,10 +555,8 @@ function bindDpad() {
   };
 
   wrap.addEventListener('pointerdown', (e) => {
-    if (activePointerId !== null) return;
+    if (!startPointer(e.pointerId)) return;
     e.preventDefault();
-    activePointerId = e.pointerId;
-    try { wrap.setPointerCapture(e.pointerId); } catch {}
     const name = getBtnUnder(e.clientX, e.clientY);
     if (name) dpadPress(name);
   }, { passive: false });
@@ -561,6 +572,32 @@ function bindDpad() {
   wrap.addEventListener('pointerup', finishPointer, { passive: false });
   wrap.addEventListener('pointercancel', finishPointer, { passive: false });
   wrap.addEventListener('lostpointercapture', finishPointer, { passive: false });
+
+  buttons.forEach((btn) => {
+    const name = btn.dataset.btn;
+    if (!name) return;
+
+    btn.addEventListener('pointerdown', (e) => {
+      if (!startPointer(e.pointerId)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dpadPress(name);
+    }, { passive: false });
+
+    btn.addEventListener('pointerup', (e) => {
+      if (e.pointerId !== activePointerId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      finishPointer(e);
+    }, { passive: false });
+
+    btn.addEventListener('pointercancel', (e) => {
+      if (e.pointerId !== activePointerId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      finishPointer(e);
+    }, { passive: false });
+  });
 }
 
 function releaseAllButtons() {
