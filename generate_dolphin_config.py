@@ -46,9 +46,9 @@ WIIMOTE_CONTENT = """\
 Source = 1
 Device = DSUClient/1/
 ; ── Botones del Wiimote (horizontal) ─────────────────────────────
-; En horizontal: 2=arriba-der, 1=abajo-der, A=lateral, B=gatillo
+; Sideways Wiimote MKWii: 2=Acelerar, 1=Mirar atrás, A=Item, B=Freno/Drift
 Buttons/A = `X`
-Buttons/B = `Y`
+Buttons/B = `R1`
 Buttons/1 = `L2`
 Buttons/2 = `R2`
 Buttons/- = Q
@@ -59,17 +59,16 @@ D-Pad/Up = UP
 D-Pad/Down = DOWN
 D-Pad/Left = LEFT
 D-Pad/Right = RIGHT
-; ── IR (no usado en MKWii sideways, defaults) ────────────────────
+; ── IR (no usado en MKWii sideways) ──────────────────────────────
 IR/Up = `Cursor Y-`
 IR/Down = `Cursor Y+`
 IR/Left = `Cursor X-`
 IR/Right = `Cursor X+`
-; ── Shake (truco/trick) ──────────────────────────────────────────
-Shake/X = `Click 2`
-Shake/Y = `Click 2`
-Shake/Z = `Click 2`
+; ── Shake (truco/trick — Y activa sacudida) ───────────────────────
+Shake/X = `Y`
+Shake/Y = `Y`
+Shake/Z = `Y`
 ; ── IMU — Acelerómetro DSU → Acelerómetro Wiimote ────────────────
-; Esto es lo que controla el giro en Mario Kart Wii
 IMUAccelerometer/Up = `Accel Up`
 IMUAccelerometer/Down = `Accel Down`
 IMUAccelerometer/Left = `Accel Left`
@@ -191,10 +190,11 @@ def main() -> None:
     print()
     print("─── Mapeo final KardPad → Wiimote → MKWii ─────────")
     print("  ACCELERATE (R2) → Wiimote 2 → Acelerar")
-    print("  BRAKE      (L2) → Wiimote 1 → Mirar atrás")
-    print("  ITEM       (X)  → Wiimote A → Usar ítem")
-    print("  DRIFT      (R1) → (no mapeado directamente)")
-    print("  TRICK      (Y)  → Wiimote B → Freno / Derrapar")
+    print("  BRAKE      (L2) → Wiimote 1 → Mirar atrás / frenar")
+    print("  ITEM       (X)  → Wiimote A → Usar ítem  ✓")
+    print("  DRIFT      (R1) → Wiimote B → Freno / Derrapar ✓")
+    print("  TRICK      (Y)  → Shake     → Truco en el aire")
+    print("  D-pad           → D-Pad     → Navegar menús")
     print("  Volante    (IMU)→ Tilt      → Girar izq/der")
     print("=" * 60)
 

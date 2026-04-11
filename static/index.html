@@ -24,7 +24,7 @@
   <!-- Fuentes: Orbitron (títulos) + Share Tech Mono (UI) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Share+Tech+Mono&display=swap"
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Inter:wght@400;500;600&display=swap"
         rel="stylesheet">
 
   <link rel="stylesheet" href="./main.css">
@@ -222,6 +222,17 @@
       Se activa en Ajustes → "Puntero de menú".
       Mueve el cursor del ratón en el PC para navegar los menús de Dolphin.
     -->
+    <!-- D-pad cluster for menu navigation -->
+    <div id="dpad-cluster">
+      <div class="dpad-wrap">
+        <button class="dpad-btn" data-btn="UP"    type="button" aria-label="Arriba"    >&#9650;</button>
+        <button class="dpad-btn" data-btn="LEFT"  type="button" aria-label="Izquierda" >&#9664;</button>
+        <button class="dpad-btn" data-btn="DOWN"  type="button" aria-label="Abajo"     >&#9660;</button>
+        <button class="dpad-btn" data-btn="RIGHT" type="button" aria-label="Derecha"   >&#9654;</button>
+      </div>
+      <div class="dpad-label">MENU</div>
+    </div>
+
     <div class="drag-unit" id="pointer-cluster" style="display:none">
       <div class="zone-label">PUNTERO MENÚ</div>
       <div class="pointer-pad" id="pointerPad" role="application" aria-label="Puntero táctil">

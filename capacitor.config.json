@@ -10,6 +10,12 @@
     "contentInset": "always",
     "backgroundColor": "#06060e",
     "preferredContentMode": "mobile",
-    "limitsNavigationsToAppBoundDomains": false
+    "limitsNavigationsToAppBoundDomains": false,
+    "allowsLinkPreview": false
+  },
+  "plugins": {
+    "ScreenOrientation": {
+      "allowRotate": true
+    }
   }
 }

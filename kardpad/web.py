@@ -52,7 +52,17 @@ def print_qr(url: str) -> None:
     qr = qrcode.QRCode(border=1)
     qr.add_data(url)
     qr.make(fit=True)
-    qr.print_ascii(invert=True)
+    try:
+        # invert=True usa caracteres de bloque Unicode: puede fallar en Windows cp1252
+        import sys
+        if sys.stdout.encoding and sys.stdout.encoding.lower() in ("utf-8", "utf-16"):
+            qr.print_ascii(invert=True)
+        else:
+            # Fallback: imprimir en modo compatile (solo ASCII puro, sin bloques)
+            qr.print_ascii(invert=False)
+    except (UnicodeEncodeError, Exception):
+        # Si falla, simplemente omitimos el QR en la consola; la URL ya se imprimió
+        pass
 
 
 def start_http_server(port: int = HTTP_PORT) -> threading.Thread:

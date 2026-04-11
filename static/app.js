@@ -463,7 +463,10 @@ function bindButtonPad() {
     btn.addEventListener('pointerdown',        press,   { passive: false });
     btn.addEventListener('pointerup',          release, { passive: false });
     btn.addEventListener('pointercancel',      release, { passive: false });
-    btn.addEventListener('pointerleave',       release, { passive: false });
+    // NOTA: NO usamos pointerleave para release — si el dedo se sale del botón
+    // mientras hacemos setPointerCapture, el evento sigue llegando al botón.
+    // Quitarlo evita que un deslizamiento accidental suelte el botón,
+    // y también permite navegar el menú sin disparar botones de juego.
     btn.addEventListener('lostpointercapture', release, { passive: false });
   });
 }
@@ -612,18 +615,46 @@ function getScreenAngle() {
   return 0;
 }
 
+/**
+ * Devuelve el ángulo efectivo de la pantalla, corrigiendo el caso en que
+ * iOS reporta angle=0 aunque el teléfono esté en landscape.
+ * Detectamos landscape real comparando innerWidth vs innerHeight.
+ */
+function getEffectiveAngle() {
+  const reported = getScreenAngle();
+  const isLandscape = window.innerWidth > window.innerHeight * 1.15;
+  if (isLandscape && reported === 0) {
+    // iOS con pantalla bloqueada/no reportada → asumimos landscape derecha
+    return 90;
+  }
+  return reported;
+}
+
 function handleDeviceMotion(ev) {
   const acc = ev.accelerationIncludingGravity;
   if (!acc) return;
   const rot = ev.rotationRate || {};
 
   // ── Inclinación del volante ────────────────────────────────────
-  const angle = getScreenAngle();
-  let rawRoll;
-  if (angle === 90  || angle === -270) rawRoll = clamp((acc.y ?? 0) / 9.8,  -1, 1);
-  else if (angle === 270 || angle === -90) rawRoll = clamp(-(acc.y ?? 0) / 9.8, -1, 1);
-  else                                     rawRoll = clamp((acc.x ?? 0) / 9.8,  -1, 1);
-
+  // Usamos getEffectiveAngle() que corrige el bug de iOS reportando 0 en landscape
+  const angle = getEffectiveAngle();
+  let sx = 0, sy = 0;
+  if (angle === 90 || angle === -270) {
+    // Landscape «derecha»: el teléfono girado 90° en sentido horario
+    sx = (acc.y ?? 0);  sy = (acc.x ?? 0);
+  } else if (angle === 270 || angle === -90) {
+    // Landscape «izquierda»: girado 90° en antihorario
+    sx = -(acc.y ?? 0); sy = -(acc.x ?? 0);
+  } else if (angle === 180 || angle === -180) {
+    // Portrait invertido
+    sx = -(acc.x ?? 0); sy = -(acc.y ?? 0);
+  } else {
+    // Portrait normal
+    sx = (acc.x ?? 0);  sy = (acc.y ?? 0);
+  }
+  let rawAngle = Math.atan2(sx, Math.abs(sy));
+  let rawRoll = clamp(rawAngle / (Math.PI / 2), -1, 1);
+  if (sx < 0) rawRoll = -Math.abs(rawRoll);
   state.lastTiltRaw = rawRoll;
 
   if (state.tiltEnabled) {
