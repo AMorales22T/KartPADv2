@@ -163,6 +163,8 @@ const state = {
   tiltSensLevel:     Number(lsGet('kardpad_tilt_sens') || '3'),
   invertSteering:    lsGet('kardpad_invert_steering') === 'true',
   lastTiltRaw:       null,
+  touchSteeringPointerId: null,
+  touchSteeringValue:     0,
 
   tiltLastHapticSide: null,
   tiltHapticTs:       0,
@@ -187,14 +189,17 @@ document.addEventListener('DOMContentLoaded', () => {
   applyPlayerTheme(1);
   initSettingsPanel();
 
-  if (isCapacitor()) {
-    injectIpScreen();
-  } else {
+  // Si la URL incluye ?wsHost= (enlace directo), conectar directamente
+  const urlWsHost = new URLSearchParams(window.location.search).get('wsHost');
+  if (urlWsHost) {
     state.wsUrl = buildWsUrl();
     updateServerAddress();
     const p = getInitialPlayer();
     if (p) connectAs(p);
     else setSetupMessage('Toca tu jugador para conectarte.');
+  } else {
+    // APK o web sin wsHost: pantalla de IP unificada
+    injectIpScreen();
   }
 });
 
@@ -220,11 +225,64 @@ function buildWsUrl(hostOverride) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   MÓDULO: RECONEXIÓN CON COUNTDOWN CANCELABLE
+   ─────────────────────────────────────────────────────────────────────
+   Cuando se pierde la conexión, en lugar de mostrar "Conexión perdida"
+   y quedar bloqueado, ofrecemos 8 segundos con countdown visible.
+   El usuario puede:
+     • Esperar → la app reconecta sola con la misma IP
+     • Tocar el mensaje → cancelar y luego ir a ⚙️ → Cambiar servidor
+   ═══════════════════════════════════════════════════════════════════════ */
+let _reconnectTimer   = null;
+let _reconnectSeconds = 0;
+let _reconnectPlayer  = null;
+
+function scheduleReconnect(player, delaySec = 8) {
+  cancelReconnect();
+  _reconnectPlayer  = player;
+  _reconnectSeconds = delaySec;
+
+  const tick = () => {
+    if (_reconnectSeconds <= 0) {
+      _reconnectTimer = null;
+      if (_reconnectPlayer !== null) connectAs(_reconnectPlayer);
+      return;
+    }
+    const el = document.getElementById('setupCopy');
+    if (el) {
+      el.textContent = '¿Cambió la IP? Reconectando en ' + _reconnectSeconds + 's… (toca para cancelar)';
+      if (!el.dataset.cancelBound) {
+        el.dataset.cancelBound = '1';
+        el.style.cursor = 'pointer';
+        el.style.textDecoration = 'underline dashed';
+        el.addEventListener('click', () => {
+          cancelReconnect();
+          delete el.dataset.cancelBound;
+          el.style.cursor = '';
+          el.style.textDecoration = '';
+          el.textContent = 'Ve a ⚙️ → Cambiar servidor para actualizar la IP.';
+        }, { once: true });
+      }
+    }
+    _reconnectSeconds--;
+    _reconnectTimer = setTimeout(tick, 1000);
+  };
+  tick();
+}
+
+function cancelReconnect() {
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  _reconnectPlayer  = null;
+  _reconnectSeconds = 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    MÓDULO: PANTALLA IP (Capacitor / WebView)
    ═══════════════════════════════════════════════════════════════════════ */
 
-function injectIpScreen() {
-  const saved = lsGet('kardpad_ip') || '';
+function injectIpScreen(prefillIp = null) {
+  document.getElementById('ipScreen')?.remove();
+  const saved = prefillIp || lsGet('kardpad_ip') || '';
   const scr = document.createElement('div');
   scr.id = 'ipScreen';
   scr.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;" +
@@ -235,14 +293,15 @@ function injectIpScreen() {
       <div style="font-family:'Orbitron',sans-serif;font-size:22px;color:#fff;letter-spacing:.06em;">
         KARD<span style="color:#e74c3c;">PAD</span>
       </div>
-      <div style="font-size:11px;color:#7c8ba1;letter-spacing:.1em;">INTRODUCE LA IP DE TU PC</div>
+      <div style="font-size:11px;color:#7c8ba1;letter-spacing:.1em;">IP DEL PC CON DOLPHIN</div>
       <input id="ipInput" type="text" inputmode="decimal" placeholder="192.168.1.X" value="${saved}"
         style="padding:14px 16px;border-radius:12px;border:1px solid rgba(6,182,212,.35);
                background:rgba(6,182,212,.07);color:#d7fbff;font-size:18px;
                font-family:'Share Tech Mono',monospace;text-align:center;
                outline:none;width:100%;-webkit-appearance:none;touch-action:manipulation;"/>
       <p style="font-size:11px;color:#7c8ba1;line-height:1.6;margin:0;">
-        Ejecuta <code style="color:#06b6d4;">python server.py</code> en el PC.
+        Ejecuta <code style="color:#06b6d4;">python server.py</code> en el PC.<br>
+        <span style="color:#4ade80;">Si la IP cambió, corrígela antes de conectar.</span>
       </p>
       <button id="ipConnectBtn" type="button"
         style="padding:15px;border-radius:999px;border:none;cursor:pointer;touch-action:manipulation;
@@ -292,8 +351,9 @@ function injectIpScreen() {
     };
     const timer = setTimeout(() => {
       try { probe.close(); } catch {}
-      if (!done) { done = true; btn.disabled=false; btn.style.opacity='1'; advance(); }
-    }, 4500);
+      if (!done) { done = true; btn.disabled=false; btn.style.opacity='1';
+        err.textContent = 'Sin respuesta (timeout). Verifica la IP y que server.py esté activo.'; }
+    }, 5000);
     probe.addEventListener('open',  () => { try { probe.close(); } catch {} finish(true); });
     probe.addEventListener('error', () => finish(false));
   };
@@ -307,7 +367,9 @@ function injectIpScreen() {
   });
   btn.addEventListener('click', attempt);
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') attempt(); });
-  if (saved) setTimeout(attempt, 300);
+  // NO auto-conectar al iniciar: si hay IP guardada, se pre-rellena pero
+  // el usuario debe pulsar CONECTAR para confirmar. Evita reconexiones
+  // automaticas cuando la IP del PC cambia entre sesiones.
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -380,8 +442,13 @@ function connectAs(player) {
     clearTimeout(timer);
     if (state.socket !== socket) return;
     state.socket = null; releaseAllButtons();
-    if (state.connectedPlayer !== null) { showSetup(); setSetupMessage('Conexión perdida.'); }
+    const wasConnected = state.connectedPlayer !== null;
     state.connectedPlayer = null;
+    if (wasConnected) {
+      showSetup();
+      // Countdown cancelable antes de reconectar
+      scheduleReconnect(player, 8);
+    }
   });
 }
 
@@ -411,6 +478,7 @@ function bindController() {
   }, { passive: true });
 
   bindButtonPad();
+  bindTouchSteering();
 
   window.addEventListener('beforeunload', () => disconnect('pagehide'));
   window.addEventListener('pagehide',     () => disconnect('pagehide'));
@@ -732,6 +800,59 @@ function sendMotionPacket(acc, rot, steering, angle) {
   });
 }
 
+function bindTouchSteering() {
+  const wrap = document.getElementById('tiltBarWrap');
+  const track = document.querySelector('#tiltBarWrap .tilt-track');
+  if (!wrap || !track) return;
+
+  const start = (e) => {
+    if (state.tiltEnabled || !isControllerVisible()) return;
+    if (state.touchSteeringPointerId !== null && state.touchSteeringPointerId !== e.pointerId) return;
+    e.preventDefault();
+    state.touchSteeringPointerId = e.pointerId;
+    wrap.classList.add('touch-steering');
+    try { wrap.setPointerCapture(e.pointerId); } catch {}
+    updateTouchSteeringFromClientX(e.clientX, track);
+    setTiltCopy('Arrastra la barra para girar.');
+  };
+
+  const move = (e) => {
+    if (e.pointerId !== state.touchSteeringPointerId) return;
+    e.preventDefault();
+    updateTouchSteeringFromClientX(e.clientX, track);
+  };
+
+  const finish = (e) => {
+    if (e.pointerId !== state.touchSteeringPointerId) return;
+    e.preventDefault();
+    if (wrap.hasPointerCapture?.(e.pointerId)) {
+      try { wrap.releasePointerCapture(e.pointerId); } catch {}
+    }
+    state.touchSteeringPointerId = null;
+    wrap.classList.remove('touch-steering');
+    state.touchSteeringValue = 0;
+    updateTiltIndicator(0);
+    sendNeutralMotion();
+    refreshTiltIdleCopy();
+  };
+
+  wrap.addEventListener('pointerdown', start, { passive: false });
+  wrap.addEventListener('pointermove', move, { passive: false });
+  wrap.addEventListener('pointerup', finish, { passive: false });
+  wrap.addEventListener('pointercancel', finish, { passive: false });
+  wrap.addEventListener('lostpointercapture', finish, { passive: false });
+}
+
+function updateTouchSteeringFromClientX(clientX, track) {
+  const rect = track.getBoundingClientRect();
+  if (!rect.width) return;
+  const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+  const steering = clamp(ratio * 2 - 1, -1, 1);
+  state.touchSteeringValue = steering;
+  updateTiltIndicator(steering);
+  sendMotionPacket(null, null, steering, getEffectiveAngle());
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    MÓDULO: INCLINACIÓN (VOLANTE)
    ═══════════════════════════════════════════════════════════════════════ */
@@ -739,7 +860,12 @@ function sendMotionPacket(acc, rot, steering, angle) {
 async function toggleTiltMode() {
   if (state.tiltEnabled) { disableTilt(); return; }
   const ok = await requestMotionPermission();
-  if (!ok) { setTiltCopy('Permiso denegado. Pulsa "Volante" de nuevo.'); return; }
+  if (!ok) {
+    const msg = getMotionBlockedCopy();
+    setTiltCopy(msg);
+    setStatus(msg);
+    return;
+  }
   state.tiltEnabled  = true;
   state.tiltSmoothed = 0;
   state.tiltLastHapticSide = null;
@@ -755,13 +881,13 @@ function disableTilt() {
   state.tiltLastHapticSide = null;
   updateTiltIndicator(0);
   updateTiltUi();
-  setTiltCopy('Activa el Volante para girar.');
+  refreshTiltIdleCopy();
   sendNeutralMotion();
 }
 
 async function requestMotionPermission() {
   if (state.tiltPermission) return true;
-  if (typeof DeviceMotionEvent === 'undefined') return false;
+  if (getMotionBlockedReason()) return false;
   // iOS 13+ requiere solicitud explícita desde gesto de usuario
   if (typeof DeviceMotionEvent.requestPermission === 'function') {
     try {
@@ -801,6 +927,34 @@ function getEffectiveAngle() {
     return 90;
   }
   return reported;
+}
+
+function getMotionBlockedReason() {
+  const isHttpLanPage = !isCapacitor() && !window.isSecureContext;
+  if (isHttpLanPage) return 'insecure-context';
+  if (typeof DeviceMotionEvent === 'undefined') return 'unsupported';
+  return null;
+}
+
+function getMotionBlockedCopy() {
+  const reason = getMotionBlockedReason();
+  if (reason === 'insecure-context') {
+    return 'Chrome/Brave bloquea el giroscopio en HTTP. Usa la barra para girar o la APK.';
+  }
+  if (reason === 'unsupported') {
+    return 'Este navegador no expone sensores. Usa la barra para girar.';
+  }
+  return 'Permiso denegado. Pulsa "Volante" de nuevo.';
+}
+
+function refreshTiltIdleCopy() {
+  if (state.tiltEnabled || state.touchSteeringPointerId !== null) return;
+  const reason = getMotionBlockedReason();
+  if (reason) {
+    setTiltCopy(getMotionBlockedCopy());
+    return;
+  }
+  setTiltCopy('Activa el Volante para girar o arrastra la barra.');
 }
 
 function handleDeviceMotion(ev) {
@@ -978,18 +1132,15 @@ function initSettingsPanel() {
 
   document.getElementById('changeServerBtn')?.addEventListener('click', () => {
     closeSettings();
+    cancelReconnect();
     disconnect('manual');
     disableTilt();
-    lsSet('kardpad_ip', '');   // borra la IP guardada
+    // Extraer IP actual para pre-rellenarla (el usuario solo edita el ultimo octeto si cambia)
+    const currentIp = state.wsUrl
+      ? state.wsUrl.replace('ws://','').split(':')[0]
+      : (lsGet('kardpad_ip') || '');
     state.wsUrl = null;
-    if (isCapacitor()) {
-      // Elimina la pantalla de IP existente si la hay y la vuelve a inyectar
-      document.getElementById('ipScreen')?.remove();
-      injectIpScreen();
-    } else {
-      showSetup();
-      setSetupMessage('Escribe la nueva IP del servidor en la URL (?wsHost=X.X.X.X) y recarga.');
-    }
+    injectIpScreen(currentIp);
   });
 
   syncSettingsPlayerBtns(state.selectedPlayer);
@@ -1175,6 +1326,7 @@ function updateServerAddress() { const el=document.getElementById('serverAddress
 function showController() {
   document.getElementById('setup').style.display='none';
   document.getElementById('controller').style.display='block';
+  refreshTiltIdleCopy();
   acquireWakeLock();
   lockLandscape();
 }

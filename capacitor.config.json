@@ -4,7 +4,9 @@
   "webDir": "static",
   "server": {
     "allowNavigation": ["*"],
-    "iosScheme": "http"
+    "iosScheme": "http",
+    "androidScheme": "http",
+    "cleartext": true
   },
   "ios": {
     "contentInset": "always",

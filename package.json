@@ -4,7 +4,9 @@
   "description": "KardPad - Mando Mario Kart para Dolphin",
   "scripts": {
     "build": "echo 'Static web app'",
-    "sync": "cap sync ios"
+    "sync": "cap sync",
+    "sync:ios": "cap sync ios",
+    "sync:android": "cap sync android"
   },
   "dependencies": {
     "@capacitor/core": "^6.0.0",
