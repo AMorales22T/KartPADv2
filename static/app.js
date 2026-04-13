@@ -217,11 +217,16 @@ function isCapacitor() {
 }
 
 function buildWsUrl(hostOverride) {
-  const params = new URLSearchParams(window.location.search);
-  const host   = hostOverride || params.get('wsHost');
-  const port   = params.get('wsPort') || '8000';
-  if (host) return `ws://${host}:${port}`;
-  return `ws://${window.location.hostname || '127.0.0.1'}:${port}`;
+  const params   = new URLSearchParams(window.location.search);
+  const host     = hostOverride || params.get('wsHost');
+  // Si la página se cargó por HTTPS usamos WSS (puerto 8001) para mantener
+  // el contexto seguro y habilitar el giroscopio en Android Chrome.
+  const isHttps  = window.location.protocol === 'https:';
+  const defaultPort = isHttps ? '8001' : '8000';
+  const port     = params.get('wsPort') || defaultPort;
+  const scheme   = isHttps ? 'wss' : 'ws';
+  if (host) return `${scheme}://${host}:${port}`;
+  return `${scheme}://${window.location.hostname || '127.0.0.1'}:${port}`;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -331,7 +336,9 @@ function injectIpScreen(prefillIp = null) {
       err.textContent = 'IP no válida. Ej: 192.168.1.37'; return;
     }
     lsSet('kardpad_ip', ip);
-    state.wsUrl = `ws://${ip}:8000`;
+    // Usar WSS si la página se cargó por HTTPS (activa giroscopio en Android)
+    const _isHttps = window.location.protocol === 'https:';
+    state.wsUrl = _isHttps ? `wss://${ip}:8001` : `ws://${ip}:8000`;
     err.textContent = 'Conectando…';
     btn.disabled = true; btn.style.opacity = '0.6';
     const advance = () => {
@@ -930,19 +937,34 @@ function getEffectiveAngle() {
 }
 
 function getMotionBlockedReason() {
-  const isHttpLanPage = !isCapacitor() && !window.isSecureContext;
-  if (isHttpLanPage) return 'insecure-context';
+  // Capacitor WebView siempre tiene acceso a sensores
+  if (isCapacitor()) return null;
+  // En la web, Chrome/Android requiere HTTPS para DeviceMotionEvent
+  if (!window.isSecureContext) return 'insecure-context';
   if (typeof DeviceMotionEvent === 'undefined') return 'unsupported';
   return null;
+}
+
+/** Devuelve la IP del servidor actual como texto legible (para mensajes de error). */
+function _getServerIp() {
+  if (state.wsUrl) {
+    return state.wsUrl.replace(/^wss?:\/\//i, '').split(':')[0];
+  }
+  return lsGet('kardpad_ip') || '192.168.1.X';
 }
 
 function getMotionBlockedCopy() {
   const reason = getMotionBlockedReason();
   if (reason === 'insecure-context') {
-    return 'Chrome/Brave bloquea el giroscopio en HTTP. Usa la barra para girar o la APK.';
+    const ip = _getServerIp();
+    return (
+      `Android Chrome requiere HTTPS para el giroscopio. ` +
+      `Abre https://${ip}:3443 en Chrome, acepta la advertencia del certificado ` +
+      `(toca "Avanzado" → "Continuar") y vuelve a activar el Volante.`
+    );
   }
   if (reason === 'unsupported') {
-    return 'Este navegador no expone sensores. Usa la barra para girar.';
+    return 'Este navegador no expone sensores. Usa la barra para girar o abre la URL HTTPS.';
   }
   return 'Permiso denegado. Pulsa "Volante" de nuevo.';
 }
@@ -1137,7 +1159,7 @@ function initSettingsPanel() {
     disableTilt();
     // Extraer IP actual para pre-rellenarla (el usuario solo edita el ultimo octeto si cambia)
     const currentIp = state.wsUrl
-      ? state.wsUrl.replace('ws://','').split(':')[0]
+      ? state.wsUrl.replace(/^wss?:\/\//i,'').split(':')[0]
       : (lsGet('kardpad_ip') || '');
     state.wsUrl = null;
     injectIpScreen(currentIp);
@@ -1285,7 +1307,9 @@ function handleQrDetected(rawData) {
   setQrResult(`✓ Servidor: ${ip}`,'success');
   lsSet('kardpad_ip', ip);
   setTimeout(() => {
-    state.wsUrl=`ws://${ip}:8000`; updateServerAddress();
+    const _isHttps = window.location.protocol === 'https:';
+    state.wsUrl = _isHttps ? `wss://${ip}:8001` : `ws://${ip}:8000`;
+    updateServerAddress();
     closeQrScanner(); closeSettings();
     connectAs(getInitialPlayer()||state.selectedPlayer||1);
   }, 900);

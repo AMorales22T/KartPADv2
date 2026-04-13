@@ -6,37 +6,83 @@ import asyncio
 from kardpad.config import APP_NAME, HTTP_PORT, WS_PORT
 from kardpad.controller import ControllerHub
 from kardpad.dsu import DSUServer
-from kardpad.web import MobileGateway, get_local_ip, print_qr, start_http_server, start_websocket_server
+from kardpad.ssl_cert import get_ssl_context
+from kardpad.web import (
+    HTTPS_PORT,
+    WSS_PORT,
+    MobileGateway,
+    get_local_ip,
+    print_qr,
+    start_http_server,
+    start_https_server,
+    start_websocket_server,
+    start_wss_server,
+)
 
 
-def print_banner(local_ip: str, dsu_port: int) -> None:
-    url = f"http://{local_ip}:{HTTP_PORT}"
-    print("+" + "-" * 58 + "+")
-    print(f"| {APP_NAME:<56} |")
-    print("+" + "-" * 58 + "+")
-    print(f"| Mobile UI : {url:<44} |")
-    print(f"| WebSocket : ws://{local_ip}:{WS_PORT:<37} |")
-    print(f"| DSU      : 127.0.0.1:{dsu_port:<42} |")
-    print("+" + "-" * 58 + "+")
-    print("| 1. Connect the phone to the same Wi-Fi.                |")
-    print("| 2. Open the mobile UI and choose a player slot.        |")
-    print("| 3. In Dolphin, add DSUClient on udp://127.0.0.1:26760. |")
-    print("| 4. Map buttons and motion from DSUClient/<slot> once.  |")
-    print("+" + "-" * 58 + "+")
+def print_banner(local_ip: str, dsu_port: int, https_enabled: bool) -> None:
+    http_url  = f"http://{local_ip}:{HTTP_PORT}"
+    https_url = f"https://{local_ip}:{HTTPS_PORT}"
+    ws_url    = f"ws://{local_ip}:{WS_PORT}"
+    wss_url   = f"wss://{local_ip}:{WSS_PORT}"
+
+    print("+" + "-" * 62 + "+")
+    print(f"| {APP_NAME:<60} |")
+    print("+" + "-" * 62 + "+")
+    if https_enabled:
+        print(f"| Android/Web (HTTPS) : {https_url:<39} |")
+        print(f"| Fallback HTTP       : {http_url:<39} |")
+        print(f"| WebSocket (WSS)     : {wss_url:<39} |")
+        print(f"| WebSocket (WS)      : {ws_url:<39} |")
+    else:
+        print(f"| Mobile UI  : {http_url:<48} |")
+        print(f"| WebSocket  : {ws_url:<48} |")
+    print(f"| DSU        : 127.0.0.1:{dsu_port:<46} |")
+    print("+" + "-" * 62 + "+")
+    if https_enabled:
+        print("| ★ ANDROID: Abre la URL HTTPS en Chrome.                      |")
+        print("|   1a vez: pulsa 'Avanzado' → 'Continuar' (cert auto-firmado) |")
+        print("|   Luego el giroscopio funcionará correctamente.              |")
+    print("| Conecta el móvil a la misma Wi-Fi que el PC.               |")
+    print("| En Dolphin añade DSUClient en udp://127.0.0.1:26760.       |")
+    print("+" + "-" * 62 + "+")
 
 
 async def main() -> None:
-    hub = ControllerHub()
+    hub     = ControllerHub()
     gateway = MobileGateway(hub)
     dsu_server = DSUServer(hub)
 
     local_ip = get_local_ip()
-    print_banner(local_ip, dsu_server.port)
-    print_qr(f"http://{local_ip}:{HTTP_PORT}")
+
+    # ── TLS: intentar generar/reutilizar certificado auto-firmado ──
+    server_ssl, ws_ssl = get_ssl_context(local_ip)
+    https_enabled = server_ssl is not None
+
+    print_banner(local_ip, dsu_server.port, https_enabled)
+
+    # QR: preferir la URL HTTPS (activa el giroscopio en Android)
+    qr_url = f"https://{local_ip}:{HTTPS_PORT}" if https_enabled else f"http://{local_ip}:{HTTP_PORT}"
+    print_qr(qr_url)
 
     dsu_server.start()
+
+    # HTTP plano siempre activo (APK Capacitor usa cleartext)
     start_http_server(HTTP_PORT)
-    await start_websocket_server(gateway, WS_PORT)
+
+    # HTTPS si el certificado está disponible
+    if https_enabled:
+        start_https_server(server_ssl, HTTPS_PORT)
+
+    # WS plano siempre activo
+    ws_task = asyncio.create_task(start_websocket_server(gateway, WS_PORT))
+
+    # WSS si el certificado está disponible
+    if https_enabled and ws_ssl:
+        wss_task = asyncio.create_task(start_wss_server(gateway, ws_ssl, WSS_PORT))
+        await asyncio.gather(ws_task, wss_task)
+    else:
+        await ws_task
 
 
 if __name__ == "__main__":

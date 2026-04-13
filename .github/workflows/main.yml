@@ -22,7 +22,7 @@ jobs:
         run: npm ci
       - name: Init Capacitor iOS project
         run: |
-          node ./node_modules/@capacitor/cli/bin/capacitor add ios
+          node ./node_modules/@capacitor/cli/bin/capacitor add ios || true
           node ./node_modules/@capacitor/cli/bin/capacitor sync ios
       - name: Patch Info.plist
         run: |
@@ -102,7 +102,7 @@ jobs:
         run: npm ci
       - name: Init Capacitor Android project
         run: |
-          node ./node_modules/@capacitor/cli/bin/capacitor add android
+          node ./node_modules/@capacitor/cli/bin/capacitor add android || true
           node ./node_modules/@capacitor/cli/bin/capacitor sync android
       - name: Build APK
         run: |

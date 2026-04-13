@@ -4,6 +4,7 @@ import asyncio
 import http.server
 import json
 import socket
+import ssl
 import threading
 import time
 import uuid
@@ -12,6 +13,10 @@ import websockets
 
 from .config import HTTP_PORT, STATIC_DIR, WS_PORT
 from .controller import ControllerHub
+
+# Puertos HTTPS/WSS (contexto seguro → giroscopio Android habilitado)
+HTTPS_PORT = 3443
+WSS_PORT   = 8001
 
 # ── Debug: motion logging ────────────────────────────────────────
 _motion_debug_ts: float = 0.0
@@ -26,6 +31,8 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
+        # Permissions-Policy: permite sensores de movimiento en contexto seguro
+        self.send_header("Permissions-Policy", "accelerometer=*, gyroscope=*")
         super().end_headers()
 
     def log_message(self, format: str, *args) -> None:
@@ -58,7 +65,7 @@ def print_qr(url: str) -> None:
         if sys.stdout.encoding and sys.stdout.encoding.lower() in ("utf-8", "utf-16"):
             qr.print_ascii(invert=True)
         else:
-            # Fallback: imprimir en modo compatile (solo ASCII puro, sin bloques)
+            # Fallback: imprimir en modo compatible (solo ASCII puro, sin bloques)
             qr.print_ascii(invert=False)
     except (UnicodeEncodeError, Exception):
         # Si falla, simplemente omitimos el QR en la consola; la URL ya se imprimió
@@ -66,10 +73,25 @@ def print_qr(url: str) -> None:
 
 
 def start_http_server(port: int = HTTP_PORT) -> threading.Thread:
+    """Servidor HTTP plano (fallback / APK Capacitor con cleartext)."""
     httpd = http.server.ThreadingHTTPServer(("0.0.0.0", port), StaticHandler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     print(f"[HTTP] Serving {STATIC_DIR} on http://0.0.0.0:{port}")
+    return thread
+
+
+def start_https_server(ssl_ctx: ssl.SSLContext, port: int = HTTPS_PORT) -> threading.Thread:
+    """
+    Servidor HTTPS con certificado auto-firmado.
+    Chrome Android requiere HTTPS para DeviceMotionEvent (giroscopio).
+    El usuario debe aceptar la advertencia del cert la primera vez.
+    """
+    httpd = http.server.ThreadingHTTPServer(("0.0.0.0", port), StaticHandler)
+    httpd.socket = ssl_ctx.wrap_socket(httpd.socket, server_side=True)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    print(f"[HTTPS] Serving {STATIC_DIR} on https://0.0.0.0:{port}")
     return thread
 
 
@@ -175,6 +197,18 @@ class MobileGateway:
 
 
 async def start_websocket_server(gateway: MobileGateway, port: int = WS_PORT) -> None:
+    """WS plano (puerto 8000) — usado por la APK Capacitor (cleartext)."""
     print(f"[WS] Listening on ws://0.0.0.0:{port}")
     async with websockets.serve(gateway.handle_connection, "0.0.0.0", port):
+        await asyncio.Future()
+
+
+async def start_wss_server(
+    gateway: MobileGateway,
+    ssl_ctx: ssl.SSLContext,
+    port: int = WSS_PORT,
+) -> None:
+    """WSS cifrado (puerto 8001) — usado por la web HTTPS (Android Chrome)."""
+    print(f"[WSS] Listening on wss://0.0.0.0:{port}")
+    async with websockets.serve(gateway.handle_connection, "0.0.0.0", port, ssl=ssl_ctx):
         await asyncio.Future()
