@@ -49,10 +49,10 @@ DSU_INI     = DOLPHIN_CONFIG_DIR / "DSUClient.ini"
 # ──────────────────────────────────────────────────────────────────────
 # WiimoteNew.ini
 # ──────────────────────────────────────────────────────────────────────
-WIIMOTE_CONTENT = """\
-[Wiimote1]
+WIIMOTE_BLOCK_TEMPLATE = """\
+[Wiimote{mote}]
 Source = 1
-Device = DSUClient/0/
+Device = DSUClient/{slot}/
 ; ── Botones del Wiimote (horizontal) MKWii ───────────────────────────
 ; Wiimote plano: 2=Acelerar, 1=Frenar, B=Derrapar, A=Mirar atras
 ; KardPad envia:  ACCELERATE->R2, BRAKE->L2, DRIFT->R1, LOOKBACK->X(Square)
@@ -76,9 +76,6 @@ IR/Down  = `DInput/0/Keyboard Mouse:Cursor Y+`
 IR/Left  = `DInput/0/Keyboard Mouse:Cursor X-`
 IR/Right = `DInput/0/Keyboard Mouse:Cursor X+`
 ; ── Shake (pirueta/truco) ────────────────────────────────────────────
-; KardPad TRICK->Y->Triangle.
-; Al agitar el movil, el JS envia boton TRICK (Triangle) + spike de aceleracion IMU.
-; Mapeamos los tres ejes al mismo boton para maxima compatibilidad.
 Shake/X = `Triangle`
 Shake/Y = `Triangle`
 Shake/Z = `Triangle`
@@ -99,54 +96,21 @@ IMUGyroscope/Yaw Right   = `Gyro Yaw Right`
 ; ── Opciones ─────────────────────────────────────────────────────────
 Options/Sideways Wiimote = True
 Extension/Attach MotionPlus = False
-; Sin Extension = None -> MKWii detecta Wiimote plano y activa tilt steering
 IRPassthrough/Enabled = True
+"""
 
-[Wiimote2]
-Source = 1
-Device = DInput/0/Keyboard Mouse
-Buttons/A = E
-Buttons/B = R
-Buttons/1 = W
-Buttons/2 = Q
-D-Pad/Up = H
-D-Pad/Down = F
-D-Pad/Left = T
-D-Pad/Right = G
-Buttons/+ = Y
-Options/Sideways Wiimote = True
+blocks = []
+for i in range(4):
+    blocks.append(WIIMOTE_BLOCK_TEMPLATE.format(mote=i+1, slot=i))
 
-[Wiimote3]
-Source = 1
-Device = DInput/0/Keyboard Mouse
-Buttons/A = I
-Buttons/B = L
-Buttons/1 = M
-Buttons/2 = COMMA
-D-Pad/Up = `F8`
-D-Pad/Down = `F5`
-D-Pad/Left = `F4`
-D-Pad/Right = `F6`
-Buttons/+ = `F7`
-Options/Sideways Wiimote = True
-
-[Wiimote4]
-Device = DInput/0/Keyboard Mouse
-Source = 1
-Buttons/A = `1`
-Buttons/B = `2`
-Buttons/1 = `3`
-Buttons/2 = `4`
-D-Pad/Up = PRIOR
-D-Pad/Down = NEXT
-D-Pad/Left = HOME
-D-Pad/Right = END
-Options/Sideways Wiimote = True
-
+blocks.append("""
 [BalanceBoard]
 Device = DInput/0/Keyboard Mouse
 Source = 0
-"""
+""")
+
+WIIMOTE_CONTENT = "\n".join(blocks)
+
 
 # ──────────────────────────────────────────────────────────────────────
 # DSUClient.ini

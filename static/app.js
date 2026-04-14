@@ -344,7 +344,9 @@ function injectIpScreen(prefillIp = null) {
     const advance = () => {
       btn.disabled = false; btn.style.opacity = '1';
       scr.remove(); updateServerAddress();
-      connectAs(getInitialPlayer() || state.selectedPlayer || 1);
+      const p = getInitialPlayer();
+      if (p) connectAs(p);
+      else showSetup();
     };
     let probe;
     try { probe = new WebSocket(state.wsUrl); }
@@ -353,7 +355,12 @@ function injectIpScreen(prefillIp = null) {
     const finish = (ok) => {
       if (done) return; done = true; clearTimeout(timer);
       btn.disabled = false; btn.style.opacity = '1';
-      if (ok) { scr.remove(); updateServerAddress(); connectAs(getInitialPlayer() || state.selectedPlayer || 1); }
+      if (ok) {
+        scr.remove(); updateServerAddress();
+        const p = getInitialPlayer();
+        if (p) connectAs(p);
+        else showSetup();
+      }
       else err.textContent = 'No se pudo conectar. ¿server.py corriendo? ¿Misma Wi-Fi?';
     };
     const timer = setTimeout(() => {
@@ -939,8 +946,12 @@ function getEffectiveAngle() {
 function getMotionBlockedReason() {
   // Capacitor WebView siempre tiene acceso a sensores
   if (isCapacitor()) return null;
-  // En la web, Chrome/Android requiere HTTPS para DeviceMotionEvent
-  if (!window.isSecureContext) return 'insecure-context';
+
+  // Chrome en Android requiere HTTPS estricto para el giroscopio.
+  // iOS (WebKit) permite DeviceMotionEvent en IPs locales HTTP.
+  const isAndroid = /Android/i.test(navigator.userAgent || '');
+  if (isAndroid && !window.isSecureContext) return 'insecure-context';
+
   if (typeof DeviceMotionEvent === 'undefined') return 'unsupported';
   return null;
 }

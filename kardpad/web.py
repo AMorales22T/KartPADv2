@@ -39,15 +39,28 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
         return
 
 
-def get_local_ip() -> str:
+def get_local_ips() -> list[str]:
+    ips = set()
+    try:
+        import psutil
+        for interface, snics in psutil.net_if_addrs().items():
+            for snic in snics:
+                if snic.family == socket.AF_INET:
+                    ips.add(snic.address)
+    except Exception:
+        pass
+    
     try:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         probe.connect(("8.8.8.8", 80))
-        ip_address = probe.getsockname()[0]
+        ips.add(probe.getsockname()[0])
         probe.close()
-        return ip_address
     except OSError:
-        return "127.0.0.1"
+        ips.add("127.0.0.1")
+        
+    # Remove link-local and loopback
+    valid_ips = [ip for ip in ips if not ip.startswith("127.") and not ip.startswith("169.254.")]
+    return sorted(valid_ips) if valid_ips else ["127.0.0.1"]
 
 
 def print_qr(url: str) -> None:

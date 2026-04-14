@@ -11,7 +11,7 @@ from kardpad.web import (
     HTTPS_PORT,
     WSS_PORT,
     MobileGateway,
-    get_local_ip,
+    get_local_ips,
     print_qr,
     start_http_server,
     start_https_server,
@@ -27,7 +27,7 @@ def print_banner(local_ip: str, dsu_port: int, https_enabled: bool) -> None:
     wss_url   = f"wss://{local_ip}:{WSS_PORT}"
 
     print("+" + "-" * 62 + "+")
-    print(f"| {APP_NAME:<60} |")
+    print(f"| {APP_NAME} - Red: {local_ip:<36} |")
     print("+" + "-" * 62 + "+")
     if https_enabled:
         print(f"| Android/Web (HTTPS) : {https_url:<39} |")
@@ -39,13 +39,6 @@ def print_banner(local_ip: str, dsu_port: int, https_enabled: bool) -> None:
         print(f"| WebSocket  : {ws_url:<48} |")
     print(f"| DSU        : 127.0.0.1:{dsu_port:<46} |")
     print("+" + "-" * 62 + "+")
-    if https_enabled:
-        print("| ★ ANDROID: Abre la URL HTTPS en Chrome.                      |")
-        print("|   1a vez: pulsa 'Avanzado' → 'Continuar' (cert auto-firmado) |")
-        print("|   Luego el giroscopio funcionará correctamente.              |")
-    print("| Conecta el móvil a la misma Wi-Fi que el PC.               |")
-    print("| En Dolphin añade DSUClient en udp://127.0.0.1:26760.       |")
-    print("+" + "-" * 62 + "+")
 
 
 async def main() -> None:
@@ -53,17 +46,25 @@ async def main() -> None:
     gateway = MobileGateway(hub)
     dsu_server = DSUServer(hub)
 
-    local_ip = get_local_ip()
-
+    local_ips = get_local_ips()
     # ── TLS: intentar generar/reutilizar certificado auto-firmado ──
-    server_ssl, ws_ssl = get_ssl_context(local_ip)
+    # Usamos la primera IP (o la de eduroam) para el cert si se requiere
+    server_ssl, ws_ssl = get_ssl_context(local_ips[0])
     https_enabled = server_ssl is not None
 
-    print_banner(local_ip, dsu_server.port, https_enabled)
+    for ip in local_ips:
+        print_banner(ip, dsu_server.port, https_enabled)
+        # QR: preferir la URL HTTPS (activa el giroscopio en Android)
+        qr_url = f"https://{ip}:{HTTPS_PORT}" if https_enabled else f"http://{ip}:{HTTP_PORT}"
+        print_qr(qr_url)
+        print()
 
-    # QR: preferir la URL HTTPS (activa el giroscopio en Android)
-    qr_url = f"https://{local_ip}:{HTTPS_PORT}" if https_enabled else f"http://{local_ip}:{HTTP_PORT}"
-    print_qr(qr_url)
+    if https_enabled:
+        print("★ ANDROID: Abre la URL HTTPS en Chrome.")
+        print("  1a vez: pulsa 'Avanzado' → 'Continuar' (cert auto-firmado)")
+        print("  Luego el giroscopio funcionará correctamente.\n")
+    print("Conecta el móvil a la misma red (ej. Punto de acceso) que el PC.")
+    print("En Dolphin añade DSUClient en udp://127.0.0.1:26760.")
 
     dsu_server.start()
 
